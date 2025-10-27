@@ -520,5 +520,3 @@ go run main.go
 ---
 
 **用 ❤️ 为 Go 社区制作**
-
-灵感来自 [gonstructor](https://github.com/moznion/gonstructor) 和 [newc](https://github.com/Bin-Huang/newc)。

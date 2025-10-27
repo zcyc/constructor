@@ -520,5 +520,3 @@ If you encounter any issues or have questions:
 
 **Made with ❤️ for the Go community**
 
-Inspired by [gonstructor](https://github.com/moznion/gonstructor) and [newc](https://github.com/Bin-Huang/newc).
-
