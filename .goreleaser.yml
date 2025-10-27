@@ -1,0 +1,89 @@
+project_name: constructor
+
+before:
+  hooks:
+    - go mod download
+    - go generate ./...
+
+builds:
+  - id: constructor
+    main: .
+    binary: constructor
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 6
+      - 7
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: constructor
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - QUICKSTART.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+release:
+  github:
+    owner: zcyc
+    name: constructor
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+
+brews:
+  - name: constructor
+    repository:
+      owner: zcyc
+      name: homebrew-tap
+    folder: Formula
+    homepage: https://github.com/zcyc/constructor
+    description: "A Go constructor code generator supporting multiple design patterns"
+    license: MIT
+    dependencies:
+      - name: go
+        type: optional
+    install: |
+      bin.install "constructor"
+    test: |
+      system "#{bin}/constructor", "-version"
