@@ -90,8 +90,8 @@ user3 := NewUserWithOptions(
 ```go
 //go:generate constructor -type=Config -constructorTypes=allArgs
 type Config struct {
-host string
-port int
+    host string
+    port int
 }
 ```
 
@@ -113,9 +113,9 @@ func NewConfig(host string, port int) *Config {
 ```go
 //go:generate constructor -type=Service -constructorTypes=builder -setterPrefix=With
 type Service struct {
-db     *sql.DB
-cache  Cache
-logger Logger
+    db     *sql.DB
+    cache  Cache
+    logger Logger
 }
 ```
 
@@ -155,9 +155,9 @@ func (b *ServiceBuilder) Build() *Service {
 ```go
 //go:generate constructor -type=Server -constructorTypes=options
 type Server struct {
-host    string
-port    int
-timeout time.Duration
+    host    string
+    port    int
+    timeout time.Duration
 }
 ```
 
@@ -221,12 +221,12 @@ constructor [flags]
 ```go
 //go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize
 type Service struct {
-db     *sql.DB
-logger Logger
+    db     *sql.DB
+    logger Logger
 }
 
 func (s *Service) initialize() {
-s.logger.Info("Service initialized")
+    s.logger.Info("Service initialized")
 }
 ```
 
@@ -248,8 +248,8 @@ func NewService(db *sql.DB, logger Logger) *Service {
 ```go
 //go:generate constructor -type=Config -constructorTypes=allArgs -returnValue
 type Config struct {
-debug bool
-port  int
+    debug bool
+    port  int
 }
 ```
 
@@ -269,8 +269,8 @@ func NewConfig(debug bool, port int) Config {
 ```go
 //go:generate constructor -type=Repository -constructorTypes=allArgs -withGetter
 type Repository struct {
-tableName string
-db        *sql.DB
+    tableName string
+    db        *sql.DB
 }
 ```
 
@@ -304,9 +304,9 @@ GoConstructor 支持使用结构体标签对字段行为进行细粒度控制：
 ```go
 //go:generate constructor -type=User -constructorTypes=allArgs -withGetter
 type User struct {
-name     string
-email    string
-internal string `constructor:"-"` // 完全跳过
+    name     string
+    email    string
+    internal string `constructor:"-"` // 完全跳过
 }
 ```
 
@@ -339,9 +339,9 @@ func (u *User) GetEmail() string {
 ```go
 //go:generate constructor -type=Product -constructorTypes=allArgs -withGetter
 type Product struct {
-id          int
-name        string
-password    string `constructor:"getter:false"` // 在构造函数中，但没有 getter
+    id          int
+    name        string
+    password    string `constructor:"getter:false"` // 在构造函数中，但没有 getter
 }
 ```
 
@@ -373,9 +373,9 @@ func (p *Product) GetName() string {
 ```go
 //go:generate constructor -type=Service -constructorTypes=builder -withGetter
 type Service struct {
-host        string
-port        int
-connCount   int `constructor:"setter:false"` // 有 getter，但不在构造函数中
+    host        string
+    port        int
+    connCount   int `constructor:"setter:false"` // 有 getter，但不在构造函数中
 }
 ```
 
@@ -404,8 +404,8 @@ func (s *Service) GetConnCount() int { return s.connCount } // Getter 存在
 ```go
 //go:generate constructor -type=Client -constructorTypes=builder -setterPrefix=With
 type Client struct {
-host string
-port int
+    host string
+    port int
 }
 ```
 
@@ -423,8 +423,8 @@ func (b *ClientBuilder) WithPort(port int) *ClientBuilder { ... }
 ```go
 //go:generate constructor -type=User -constructorTypes=allArgs,builder,options
 type User struct {
-name  string
-email string
+    name  string
+    email string
 }
 ```
 
@@ -437,7 +437,7 @@ email string
 ```go
 //go:generate go run github.com/zcyc/constructor@latest -type=User -constructorTypes=allArgs
 type User struct {
-name string
+    name string
 }
 ```
 

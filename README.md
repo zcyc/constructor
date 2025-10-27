@@ -43,11 +43,11 @@ import "time"
 
 //go:generate constructor -type=User -constructorTypes=allArgs,builder,options
 type User struct {
-	id        int
-	name      string
-	email     string
-	createdAt time.Time
-	metadata  map[string]string `newc:"-"` // Skip this field
+    id        int
+    name      string
+    email     string
+    createdAt time.Time
+    metadata  map[string]string `newc:"-"` // Skip this field
 }
 ```
 
@@ -65,18 +65,18 @@ user1 := NewUser(1, "Alice", "alice@example.com", time.Now())
 
 // Builder pattern
 user2 := NewUserBuilder().
-Id(1).
-Name("Bob").
-Email("bob@example.com").
-CreatedAt(time.Now()).
-Build()
+    Id(1).
+    Name("Bob").
+    Email("bob@example.com").
+    CreatedAt(time.Now()).
+    Build()
 
 // Functional options pattern
 user3 := NewUserWithOptions(
-WithId(1),
-WithName("Charlie"),
-WithEmail("charlie@example.com"),
-WithCreatedAt(time.Now()),
+    WithId(1),
+    WithName("Charlie"),
+    WithEmail("charlie@example.com"),
+    WithCreatedAt(time.Now()),
 )
 ```
 
@@ -89,8 +89,8 @@ Generates a simple constructor that accepts all fields as parameters.
 ```go
 //go:generate constructor -type=Config -constructorTypes=allArgs
 type Config struct {
-host string
-port int
+    host string
+    port int
 }
 ```
 
@@ -98,10 +98,10 @@ port int
 
 ```go
 func NewConfig(host string, port int) *Config {
-return &Config{
-host: host,
-port: port,
-}
+    return &Config{
+        host: host,
+        port: port,
+    }
 }
 ```
 
@@ -112,9 +112,9 @@ Generates a builder struct with fluent setter methods.
 ```go
 //go:generate constructor -type=Service -constructorTypes=builder -setterPrefix=With
 type Service struct {
-db     *sql.DB
-cache  Cache
-logger Logger
+    db     *sql.DB
+    cache  Cache
+    logger Logger
 }
 ```
 
@@ -122,28 +122,28 @@ logger Logger
 
 ```go
 type ServiceBuilder struct {
-db     *sql.DB
-cache  Cache
-logger Logger
+    db     *sql.DB
+    cache  Cache
+    logger Logger
 }
 
 func NewServiceBuilder() *ServiceBuilder {
-return &ServiceBuilder{}
+    return &ServiceBuilder{}
 }
 
 func (b *ServiceBuilder) WithDb(db *sql.DB) *ServiceBuilder {
-b.db = db
-return b
+    b.db = db
+    return b
 }
 
 // ... other setters ...
 
 func (b *ServiceBuilder) Build() *Service {
-return &Service{
-db:     b.db,
-cache:  b.cache,
-logger: b.logger,
-}
+    return &Service{
+        db:     b.db,
+        cache:  b.cache,
+        logger: b.logger,
+    }
 }
 ```
 
@@ -154,9 +154,9 @@ Generates option functions for flexible configuration.
 ```go
 //go:generate constructor -type=Server -constructorTypes=options
 type Server struct {
-host    string
-port    int
-timeout time.Duration
+    host    string
+    port    int
+    timeout time.Duration
 }
 ```
 
@@ -166,29 +166,29 @@ timeout time.Duration
 type ServerOption func (*Server)
 
 func WithHost(host string) ServerOption {
-return func (s *Server) {
-s.host = host
-}
+    return func (s *Server) {
+        s.host = host
+    }
 }
 
 func WithPort(port int) ServerOption {
-return func (s *Server) {
-s.port = port
-}
+    return func (s *Server) {
+        s.port = port
+    }
 }
 
 func WithTimeout(timeout time.Duration) ServerOption {
-return func (s *Server) {
-s.timeout = timeout
-}
+    return func (s *Server) {
+        s.timeout = timeout
+    }
 }
 
 func NewServerWithOptions(opts ...ServerOption) *Server {
-v := &Server{}
-for _, opt := range opts {
-opt(v)
-}
-return v
+    v := &Server{}
+    for _, opt := range opts {
+        opt(v)
+    }
+    return v
 }
 ```
 
@@ -220,12 +220,12 @@ Call an initialization method after construction:
 ```go
 //go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize
 type Service struct {
-db     *sql.DB
-logger Logger
+    db     *sql.DB
+    logger Logger
 }
 
 func (s *Service) initialize() {
-s.logger.Info("Service initialized")
+    s.logger.Info("Service initialized")
 }
 ```
 
@@ -233,12 +233,12 @@ s.logger.Info("Service initialized")
 
 ```go
 func NewService(db *sql.DB, logger Logger) *Service {
-v := &Service{
-db:     db,
-logger: logger,
-}
-v.initialize()
-return v
+    v := &Service{
+        db:     db,
+        logger: logger,
+    }
+    v.initialize()
+    return v
 }
 ```
 
@@ -247,8 +247,8 @@ return v
 ```go
 //go:generate constructor -type=Config -constructorTypes=allArgs -returnValue
 type Config struct {
-debug bool
-port  int
+    debug bool
+    port  int
 }
 ```
 
@@ -256,10 +256,10 @@ port  int
 
 ```go
 func NewConfig(debug bool, port int) Config {
-return Config{
-debug: debug,
-port:  port,
-}
+    return Config{
+        debug: debug,
+        port:  port,
+    }
 }
 ```
 
@@ -268,8 +268,8 @@ port:  port,
 ```go
 //go:generate constructor -type=Repository -constructorTypes=allArgs -withGetter
 type Repository struct {
-tableName string
-db        *sql.DB
+    tableName string
+    db        *sql.DB
 }
 ```
 
@@ -277,18 +277,18 @@ db        *sql.DB
 
 ```go
 func NewRepository(tableName string, db *sql.DB) *Repository {
-return &Repository{
-tableName: tableName,
-db:        db,
-}
+    return &Repository{
+        tableName: tableName,
+        db:        db,
+    }
 }
 
 func (r *Repository) GetTableName() string {
-return r.tableName
+    return r.tableName
 }
 
 func (r *Repository) GetDb() *sql.DB {
-return r.db
+    return r.db
 }
 ```
 
@@ -303,9 +303,9 @@ Skip fields entirely (no constructor parameter, no getter):
 ```go
 //go:generate constructor -type=User -constructorTypes=allArgs -withGetter
 type User struct {
-name     string
-email    string
-internal string `constructor:"-"` // Completely skipped
+    name     string
+    email    string
+    internal string `constructor:"-"` // Completely skipped
 }
 ```
 
@@ -313,18 +313,18 @@ internal string `constructor:"-"` // Completely skipped
 
 ```go
 func NewUser(name string, email string) *User {
-return &User{
-name:  name,
-email: email,
-}
+    return &User{
+        name:  name,
+        email: email,
+    }
 }
 
 func (u *User) GetName() string {
-return u.name
+    return u.name
 }
 
 func (u *User) GetEmail() string {
-return u.email
+    return u.email
 }
 // No GetInternal() method
 ```
@@ -338,9 +338,9 @@ Include field in constructor but don't generate getter:
 ```go
 //go:generate constructor -type=Product -constructorTypes=allArgs -withGetter
 type Product struct {
-id          int
-name        string
-password    string `constructor:"getter:false"` // In constructor, but no getter
+    id          int
+    name        string
+    password    string `constructor:"getter:false"` // In constructor, but no getter
 }
 ```
 
@@ -348,19 +348,19 @@ password    string `constructor:"getter:false"` // In constructor, but no getter
 
 ```go
 func NewProduct(id int, name string, password string) *Product {
-return &Product{
-id:       id,
-name:     name,
-password: password,
-}
+    return &Product{
+        id:       id,
+        name:     name,
+        password: password,
+    }
 }
 
 func (p *Product) GetId() int {
-return p.id
+    return p.id
 }
 
 func (p *Product) GetName() string {
-return p.name
+    return p.name
 }
 // No GetPassword() method (security sensitive)
 ```
@@ -372,9 +372,9 @@ Generate getter but don't include in constructor:
 ```go
 //go:generate constructor -type=Service -constructorTypes=builder -withGetter
 type Service struct {
-host        string
-port        int
-connCount   int `constructor:"setter:false"` // Has getter, but not in constructor
+    host        string
+    port        int
+    connCount   int `constructor:"setter:false"` // Has getter, but not in constructor
 }
 ```
 
@@ -382,9 +382,9 @@ connCount   int `constructor:"setter:false"` // Has getter, but not in construct
 
 ```go
 type ServiceBuilder struct {
-host string
-port int
-// No connCount field
+    host string
+    port int
+    // No connCount field
 }
 
 func (b *ServiceBuilder) Host(host string) *ServiceBuilder { ... }
@@ -403,8 +403,8 @@ This is useful for fields that are managed internally but need to be read extern
 ```go
 //go:generate constructor -type=Client -constructorTypes=builder -setterPrefix=With
 type Client struct {
-host string
-port int
+    host string
+    port int
 }
 ```
 
@@ -422,8 +422,8 @@ Generate multiple constructor patterns in a single file:
 ```go
 //go:generate constructor -type=User -constructorTypes=allArgs,builder,options
 type User struct {
-name  string
-email string
+    name  string
+    email string
 }
 ```
 
@@ -436,7 +436,7 @@ For team collaboration, you can run the generator without manual installation:
 ```go
 //go:generate go run github.com/zcyc/constructor@latest -type=User -constructorTypes=allArgs
 type User struct {
-name string
+    name string
 }
 ```
 
