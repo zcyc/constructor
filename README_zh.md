@@ -15,7 +15,7 @@
 - 🎯 **初始化支持**：在构造后调用初始化方法
 - 📦 **值或指针**：根据需要返回值或指针
 - 🔍 **Getter 生成**：自动为私有字段生成 getter 方法
-- 🛠️ **导入管理**：通过 `goimports` 自动处理导入
+- 🛠️ **导入管理**：使用 Go 标准库自动处理导入
 
 ## 安装
 
@@ -24,14 +24,6 @@ go install github.com/zcyc/constructor@latest
 ```
 
 或从 [releases 页面](https://github.com/zcyc/constructor/releases) 下载预构建的二进制文件。
-
-### 依赖
-
-此工具需要 [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) 来自动管理导入：
-
-```bash
-go install golang.org/x/tools/cmd/goimports@latest
-```
 
 ## 快速开始
 
@@ -481,13 +473,6 @@ type User struct {
 ### 混合模式
 
 - `examples/mixed/repository.go` - 一个结构体中的所有三种模式
-
-运行演示：
-
-```bash
-cd examples/demo
-go run main.go
-```
 
 ## 贡献
 

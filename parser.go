@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
-	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -42,6 +44,7 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 			Name:        structName,
 			PackageName: node.Name.Name,
 			Fields:      []FieldInfo{},
+			Imports:     parseImports(node.Imports),
 		}
 
 		// Parse each field
@@ -59,11 +62,15 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 			// Handle embedded fields (no name)
 			if len(field.Names) == 0 {
+				fieldName := embeddedFieldName(field.Type)
+				if fieldName == "" {
+					continue
+				}
 				structInfo.Fields = append(structInfo.Fields, FieldInfo{
-					Name:       fieldType, // Use type as name for embedded fields
+					Name:       fieldName,
 					Type:       fieldType,
 					Tag:        tag,
-					Exported:   true, // Embedded fields are always exported
+					Exported:   ast.IsExported(fieldName),
 					Skip:       skip,
 					SkipGetter: skipGetter,
 					SkipSetter: skipSetter,
@@ -73,6 +80,9 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 			// Regular fields
 			for _, name := range field.Names {
+				if name.Name == "_" {
+					continue
+				}
 				exported := ast.IsExported(name.Name)
 				structInfo.Fields = append(structInfo.Fields, FieldInfo{
 					Name:       name.Name,
@@ -98,45 +108,44 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 // exprToString converts an ast.Expr to its string representation
 func exprToString(expr ast.Expr) string {
-	switch t := expr.(type) {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, token.NewFileSet(), expr); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+func parseImports(specs []*ast.ImportSpec) []ImportInfo {
+	imports := make([]ImportInfo, 0, len(specs))
+	for _, spec := range specs {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+
+		name := ""
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		imports = append(imports, ImportInfo{Name: name, Path: path})
+	}
+	return imports
+}
+
+func embeddedFieldName(expr ast.Expr) string {
+	switch expr := expr.(type) {
 	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return "*" + exprToString(t.X)
-	case *ast.ArrayType:
-		if t.Len == nil {
-			return "[]" + exprToString(t.Elt)
-		}
-		return "[" + exprToString(t.Len) + "]" + exprToString(t.Elt)
-	case *ast.MapType:
-		return "map[" + exprToString(t.Key) + "]" + exprToString(t.Value)
-	case *ast.ChanType:
-		switch t.Dir {
-		case ast.SEND:
-			return "chan<- " + exprToString(t.Value)
-		case ast.RECV:
-			return "<-chan " + exprToString(t.Value)
-		default:
-			return "chan " + exprToString(t.Value)
-		}
+		return expr.Name
 	case *ast.SelectorExpr:
-		return exprToString(t.X) + "." + t.Sel.Name
-	case *ast.InterfaceType:
-		if len(t.Methods.List) == 0 {
-			return "interface{}"
-		}
-		return "interface{...}"
-	case *ast.FuncType:
-		return "func(...)"
-	case *ast.StructType:
-		return "struct{...}"
-	case *ast.Ellipsis:
-		return "..." + exprToString(t.Elt)
-	case *ast.BasicLit:
-		return t.Value
+		return expr.Sel.Name
+	case *ast.StarExpr:
+		return embeddedFieldName(expr.X)
+	case *ast.IndexExpr:
+		return embeddedFieldName(expr.X)
+	case *ast.IndexListExpr:
+		return embeddedFieldName(expr.X)
 	default:
-		// Fallback for unknown types
-		return fmt.Sprintf("%v", reflect.TypeOf(expr).Elem().Name())
+		return ""
 	}
 }
 

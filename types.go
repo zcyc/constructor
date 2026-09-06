@@ -2,9 +2,16 @@ package main
 
 // StructInfo represents parsed struct information
 type StructInfo struct {
-	Name        string      // Struct name, e.g., "User"
-	Fields      []FieldInfo // List of fields
-	PackageName string      // Package name
+	Name        string       // Struct name, e.g., "User"
+	Fields      []FieldInfo  // List of fields
+	PackageName string       // Package name
+	Imports     []ImportInfo // Imports used by generated field types
+}
+
+// ImportInfo describes an import declaration from the source file.
+type ImportInfo struct {
+	Name string
+	Path string
 }
 
 // FieldInfo represents a single field in a struct

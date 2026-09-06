@@ -14,7 +14,7 @@ A powerful Go code generator that creates constructor code for structs with supp
 - 🎯 **Initialization Support**: Call init methods after construction
 - 📦 **Value or Pointer**: Return values or pointers based on your needs
 - 🔍 **Getter Generation**: Automatically generate getter methods for private fields
-- 🛠️ **Import Management**: Automatic import handling via `goimports`
+- 🛠️ **Import Management**: Automatic import handling with the Go standard library
 
 ## Installation
 
@@ -23,14 +23,6 @@ go install github.com/zcyc/constructor@latest
 ```
 
 Or download pre-built binaries from the [releases page](https://github.com/zcyc/constructor/releases).
-
-### Dependencies
-
-This tool requires [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) for automatic import management:
-
-```bash
-go install golang.org/x/tools/cmd/goimports@latest
-```
 
 ## Quick Start
 
@@ -481,13 +473,6 @@ Check the [examples](./examples) directory for complete working examples organiz
 
 - `examples/mixed/repository.go` - All three patterns in one struct
 
-Run the demo:
-
-```bash
-cd examples/demo
-go run main.go
-```
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -519,4 +504,3 @@ If you encounter any issues or have questions:
 ---
 
 **Made with ❤️ for the Go community**
-

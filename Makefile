@@ -15,19 +15,11 @@ install:
 	@go install .
 	@echo "✅ Installed to $(shell go env GOPATH)/bin/constructor"
 
-# 安装依赖
-deps:
-	@echo "Installing dependencies..."
-	@go mod download
-	@go install golang.org/x/tools/cmd/goimports@latest
-	@echo "✅ Dependencies installed"
-
 # 清理构建产物
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -f constructor
 	@rm -f examples/*_gen.go
-	@rm -rf examples/demo/go.mod examples/demo/go.sum
 	@echo "✅ Clean complete"
 
 # 运行测试
@@ -45,24 +37,20 @@ generate:
 # 编译示例
 examples: generate
 	@echo "Building examples..."
-	@go build ./examples
+	@go build ./examples/...
 	@echo "✅ Examples built successfully"
 
-# 运行演示
-demo: build examples
-	@echo "Running demo..."
-	@cd examples/demo && go run main.go
-
 # 验证项目
-verify: build
+verify: build generate
 	@echo "Running verification..."
-	@./verify.sh
+	@go test ./...
+	@go vet ./...
+	@echo "✅ Verification passed"
 
 # 格式化代码
 fmt:
 	@echo "Formatting code..."
 	@go fmt ./...
-	@goimports -w .
 	@echo "✅ Code formatted"
 
 # 代码检查
@@ -91,14 +79,12 @@ help:
 	@echo "Targets:"
 	@echo "  build      - Build the constructor binary"
 	@echo "  install    - Install constructor to GOPATH/bin"
-	@echo "  deps       - Install dependencies (goimports)"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  test       - Run tests"
 	@echo "  generate   - Generate example constructors"
 	@echo "  examples   - Build examples"
-	@echo "  demo       - Run the demo application"
-	@echo "  verify     - Run verification script"
-	@echo "  fmt        - Format code with gofmt and goimports"
+	@echo "  verify     - Run tests and vet"
+	@echo "  fmt        - Format code with gofmt"
 	@echo "  lint       - Run code linters"
 	@echo "  version    - Show version"
 	@echo "  release    - Create release package"
@@ -107,5 +93,4 @@ help:
 	@echo "Examples:"
 	@echo "  make build              # Build the project"
 	@echo "  make install            # Install to GOPATH"
-	@echo "  make demo               # Run demonstration"
 	@echo "  make verify             # Full verification"

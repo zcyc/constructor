@@ -219,6 +219,7 @@ func TestToLowerCamelCase(t *testing.T) {
 	}{
 		{"Name", "name"},
 		{"HTTPClient", "hTTPClient"},
+		{"Éclair", "éclair"},
 		{"", ""},
 	}
 
@@ -237,6 +238,7 @@ func TestToUpperCamelCase(t *testing.T) {
 	}{
 		{"name", "Name"},
 		{"httpClient", "HttpClient"},
+		{"éclair", "Éclair"},
 		{"", ""},
 	}
 
@@ -245,6 +247,70 @@ func TestToUpperCamelCase(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("toUpperCamelCase(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
+	}
+}
+
+func TestGenerateAvoidsNameCollisions(t *testing.T) {
+	info := &StructInfo{
+		Name:        "TestStruct",
+		PackageName: "test",
+		Fields: []FieldInfo{
+			{Name: "Name", Type: "string"},
+			{Name: "name", Type: "string"},
+		},
+	}
+	config := &GeneratorConfig{
+		ConstructorTypes: []string{"allArgs", "builder", "options"},
+		WithGetter:       true,
+	}
+
+	code, err := NewGenerator(config, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	for _, want := range []string{
+		"func NewTestStruct(name string, name2 string)",
+		"func (b *TestStructBuilder) Name2(name2 string)",
+		"func WithName2(name2 string) TestStructOption",
+		"func (t *TestStruct) GetName2() string",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated code missing %q", want)
+		}
+	}
+}
+
+func TestGenerateIncludesOnlyUsedImports(t *testing.T) {
+	info := &StructInfo{
+		Name:        "TestStruct",
+		PackageName: "test",
+		Imports: []ImportInfo{
+			{Path: "time"},
+			{Path: "fmt"},
+			{Path: "gopkg.in/yaml.v3"},
+		},
+		Fields: []FieldInfo{
+			{Name: "timeout", Type: "time.Duration"},
+			{Name: "document", Type: "yaml.Node"},
+		},
+	}
+
+	code, err := NewGenerator(&GeneratorConfig{
+		ConstructorTypes: []string{"allArgs"},
+	}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if !strings.Contains(code, `"time"`) {
+		t.Error("generated code should import time")
+	}
+	if !strings.Contains(code, `"gopkg.in/yaml.v3"`) {
+		t.Error("generated code should import versioned yaml package")
+	}
+	if strings.Contains(code, `"fmt"`) {
+		t.Error("generated code should not import unused fmt")
 	}
 }
 

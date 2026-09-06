@@ -183,6 +183,8 @@ func TestExprToString(t *testing.T) {
 
 import "time"
 
+type Base struct{}
+
 type ComplexStruct struct {
 	str        string
 	ptr        *int
@@ -192,6 +194,11 @@ type ComplexStruct struct {
 	channel    chan int
 	timeField  time.Time
 	iface      interface{}
+	handler    func(string) error
+	generic    Box[int]
+	grouped    (map[string]int)
+	*Base
+	_          struct{}
 }
 `
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
@@ -213,6 +220,14 @@ type ComplexStruct struct {
 		"channel":   "chan int",
 		"timeField": "time.Time",
 		"iface":     "interface{}",
+		"handler":   "func(string) error",
+		"generic":   "Box[int]",
+		"grouped":   "(map[string]int)",
+		"Base":      "*Base",
+	}
+
+	if len(info.Fields) != len(expectedTypes) {
+		t.Fatalf("expected %d usable fields, got %d", len(expectedTypes), len(info.Fields))
 	}
 
 	for _, field := range info.Fields {
@@ -223,5 +238,31 @@ type ComplexStruct struct {
 		if field.Type != expected {
 			t.Errorf("Field %s: expected type %s, got %s", field.Name, expected, field.Type)
 		}
+	}
+}
+
+func TestParseEmbeddedFieldName(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+
+	content := `package test
+
+type Base struct{}
+
+type Container struct {
+	*Base
+}
+`
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := ParseStruct(testFile, "Container")
+	if err != nil {
+		t.Fatalf("ParseStruct failed: %v", err)
+	}
+
+	if len(info.Fields) != 1 || info.Fields[0].Name != "Base" {
+		t.Fatalf("embedded field = %#v, want field named Base", info.Fields)
 	}
 }

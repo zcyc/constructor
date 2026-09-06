@@ -66,11 +66,17 @@ func main() {
 	}
 
 	// Validate constructor types
+	seenTypes := make(map[string]struct{}, len(types))
 	for _, t := range types {
 		if t != "allArgs" && t != "builder" && t != "options" {
 			fmt.Fprintf(os.Stderr, "Error: invalid constructor type '%s'. Valid types: allArgs, builder, options\n", t)
 			os.Exit(1)
 		}
+		if _, seen := seenTypes[t]; seen {
+			fmt.Fprintf(os.Stderr, "Error: constructor type '%s' was specified more than once\n", t)
+			os.Exit(1)
+		}
+		seenTypes[t] = struct{}{}
 	}
 
 	// Create generator config
