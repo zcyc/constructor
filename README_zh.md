@@ -11,7 +11,7 @@
 
 - 🚀 **多种构造函数模式**：生成全参数构造函数、建造者模式或函数式选项模式
 - 🔧 **灵活配置**：使用各种标志自定义输出
-- 🏷️ **字段标签**：使用 `constructor:"-"`、`constructor:"getter:false"` 和 `constructor:"setter:false"` 标签进行细粒度控制
+- 🏷️ **字段标签**：使用 `constructor:"-"`、`constructor:"getter:false"`、`constructor:"setter:false"`、`constructor:"default=..."` 和 `constructor:"required"` 标签进行细粒度控制
 - 🎯 **初始化支持**：在构造后调用初始化方法
 - 📦 **值或指针**：根据需要返回值或指针
 - 🔍 **Getter 生成**：自动为私有字段生成 getter 方法
@@ -198,6 +198,8 @@ type Box[T any] struct {
 
 会生成 `NewBox[T any](value T) *Box[T]`、`BoxBuilder[T]` 和 `BoxOption[T]`。
 
+对于泛型 options，Go 只能推断出现在 option 参数中的类型参数。如果某个类型参数只出现在其他字段中，需要显式传入类型参数，或改用 builder 模式。
+
 ## 命令行选项
 
 ```bash
@@ -217,6 +219,9 @@ constructor [flags]
 | `-returnValue`      | 返回值而不是指针          | `false`         | `-returnValue`                              |
 | `-setterPrefix`     | 建造者 setter 方法的前缀  | -               | `-setterPrefix=With`                        |
 | `-withGetter`       | 为私有字段生成 getter 方法 | `false`         | `-withGetter`                               |
+| `-dry-run`          | 校验生成结果但不写入文件   | `false`         | `-dry-run`                                  |
+| `-stdout`           | 将生成代码输出到标准输出   | `false`         | `-stdout`                                   |
+| `-validate-only`    | 只校验已有生成文件         | `false`         | `-validate-only`                            |
 | `-version`          | 显示版本信息            | -               | `-version`                                  |
 
 ## 高级用法
@@ -269,6 +274,22 @@ type Config struct {
     port  int
 }
 ```
+
+### 默认值和必填字段
+
+默认值使用 Go 表达式，`required` 用于禁止字段保持零值：
+
+```go
+type Server struct {
+    name    string        `constructor:"required"`
+    port    int           `constructor:"default=8080"`
+    timeout time.Duration `constructor:"default=time.Second"`
+}
+```
+
+带默认值的字段会从 all-args 参数列表中移除，并由三种模式自动初始化。必填字段会让生成的构造函数返回 `(*Server, error)`（配合 `-returnValue` 时返回 `(Server, error)`）。
+
+`-dry-run` 用于只校验不写文件，`-stdout` 用于管道输出代码，`-validate-only` 用于校验已有生成文件。
 
 **生成：**
 

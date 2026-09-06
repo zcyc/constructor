@@ -115,15 +115,44 @@ func (g *Generator) importsForGeneratedTypes() []ImportInfo {
 	}
 
 	imports := make([]ImportInfo, 0, len(g.info.Imports))
+	addImport := func(imp ImportInfo) {
+		for _, existing := range imports {
+			if existing.Path == imp.Path {
+				return
+			}
+		}
+		imports = append(imports, imp)
+	}
 	for _, imp := range g.info.Imports {
 		if imp.Name == "_" {
 			continue
 		}
 		if imp.Name == "." || importQualifierUsed(fields, g.info.TypeParams, importQualifier(imp)) {
-			imports = append(imports, imp)
+			addImport(imp)
 		}
 	}
+	if g.hasRequiredFields() {
+		addImport(g.importForPath("errors", "errors"))
+		addImport(g.importForPath("reflect", "reflect"))
+	}
 	return imports
+}
+
+func (g *Generator) importForPath(importPath, defaultName string) ImportInfo {
+	for _, imp := range g.info.Imports {
+		if imp.Path == importPath && imp.Name != "_" {
+			return imp
+		}
+	}
+	return ImportInfo{Name: defaultName, Path: importPath}
+}
+
+func (g *Generator) generatedSelector(importPath, defaultName, member string) string {
+	imp := g.importForPath(importPath, defaultName)
+	if imp.Name == "." {
+		return member
+	}
+	return importQualifier(imp) + "." + member
 }
 
 func importQualifier(imp ImportInfo) string {
@@ -159,15 +188,64 @@ func importQualifierUsed(fields []FieldInfo, typeParams, qualifier string) bool 
 	}
 
 	for _, field := range fields {
-		expr, err := parser.ParseExpr(field.Type)
-		if err != nil {
-			continue
+		for _, value := range []string{field.Type, field.Default} {
+			expr, err := parser.ParseExpr(value)
+			if err != nil {
+				continue
+			}
+			if qualifierUsedInNode(expr, qualifier) {
+				return true
+			}
 		}
-		if qualifierUsedInNode(expr, qualifier) {
+	}
+	return false
+}
+
+func (g *Generator) hasRequiredFields() bool {
+	for _, field := range g.info.Fields {
+		if field.Required {
 			return true
 		}
 	}
 	return false
+}
+
+func (g *Generator) returnsError() bool {
+	return g.config.InitReturnsError || g.hasRequiredFields()
+}
+
+func (g *Generator) requiredError(fieldName string) string {
+	errorNew := g.generatedSelector("errors", "errors", "New")
+	if g.config.ReturnValue {
+		return fmt.Sprintf("return *new(%s), %s(%q)", g.typeReference(), errorNew, "required field "+fieldName+" is zero")
+	}
+	return fmt.Sprintf("return nil, %s(%q)", errorNew, "required field "+fieldName+" is zero")
+}
+
+func (g *Generator) requiredValidation(receiver string) string {
+	if !g.hasRequiredFields() {
+		return ""
+	}
+
+	reflectValueOf := g.generatedSelector("reflect", "reflect", "ValueOf")
+	var buf strings.Builder
+	for _, field := range g.info.Fields {
+		if !field.Required {
+			continue
+		}
+		fmt.Fprintf(&buf, "\n\tif %s(&%s.%s).Elem().IsZero() {\n\t\t%s\n\t}", reflectValueOf, receiver, field.Name, g.requiredError(field.Name))
+	}
+	return buf.String()
+}
+
+func defaultAssignments(fields []FieldInfo) []string {
+	assignments := make([]string, 0)
+	for _, field := range fields {
+		if field.Default != "" {
+			assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, field.Default))
+		}
+	}
+	return assignments
 }
 
 func typeParamsQualifierUsed(typeParams, qualifier string) bool {
@@ -211,11 +289,21 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 
 	params := []string{}
 	assignments := []string{}
-	localNames := uniqueFieldNames(fields, func(field FieldInfo) string {
+	paramFields := make([]FieldInfo, 0, len(fields))
+	for _, field := range fields {
+		if field.Default == "" {
+			paramFields = append(paramFields, field)
+		}
+	}
+	localNames := uniqueFieldNames(paramFields, func(field FieldInfo) string {
 		return toLowerCamelCase(field.Name)
 	})
 
 	for _, field := range fields {
+		if field.Default != "" {
+			assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, field.Default))
+			continue
+		}
 		paramName := localNames[field.Name]
 		params = append(params, fmt.Sprintf("%s %s", paramName, field.Type))
 		assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, paramName))
@@ -225,38 +313,50 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 	returnType := baseReturnType
 	varDecl := "return &"
 	returnValue := ""
+	needsValue := g.config.InitFunc != "" || g.returnsError()
+	if needsValue {
+		if g.config.ReturnValue {
+			varDecl = "v := "
+		} else {
+			varDecl = "v := &"
+		}
+		if g.returnsError() {
+			returnValue = "v, nil"
+		} else {
+			returnValue = "v"
+		}
+	}
 
 	if g.config.ReturnValue {
 		baseReturnType = g.typeReference()
 		returnType = g.typeReference()
-		varDecl = "return "
-		returnValue = ""
+		if g.returnsError() {
+			returnType = fmt.Sprintf("(%s, error)", baseReturnType)
+		}
+		if !needsValue {
+			varDecl = "return "
+			returnValue = ""
+		}
+	}
+	if !g.config.ReturnValue && g.returnsError() {
+		returnType = fmt.Sprintf("(%s, error)", baseReturnType)
 	}
 
-	// Handle init function
+	// Handle validation and init function.
 	initCall := ""
+	if needsValue {
+		initCall = g.requiredValidation("v")
+	}
 	if g.config.InitFunc != "" {
-		if g.config.ReturnValue {
-			varDecl = "v := "
-			returnValue = "v"
-		} else {
-			varDecl = "v := &"
-			returnValue = "v"
-		}
 		if g.config.InitReturnsError {
-			returnValue = "v, nil"
-			returnType = fmt.Sprintf("(%s, error)", baseReturnType)
 			if g.config.ReturnValue {
-				initCall = fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn *new(%s), err\n\t}", g.config.InitFunc, g.typeReference())
+				initCall += fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn *new(%s), err\n\t}", g.config.InitFunc, g.typeReference())
 			} else {
-				initCall = fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn nil, err\n\t}", g.config.InitFunc)
+				initCall += fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn nil, err\n\t}", g.config.InitFunc)
 			}
 		} else {
-			initCall = fmt.Sprintf("\n\tv.%s()", g.config.InitFunc)
+			initCall += fmt.Sprintf("\n\tv.%s()", g.config.InitFunc)
 		}
-	} else {
-		// No init function, so returnValue stays empty for direct return
-		returnValue = ""
 	}
 
 	data := map[string]string{
@@ -313,7 +413,11 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	// Generate builder constructor
 	buf.WriteString(fmt.Sprintf("// New%s creates a new %s\n", builderName, builderName))
 	buf.WriteString(fmt.Sprintf("func New%s%s() *%s {\n", builderName, g.info.TypeParams, builderType))
-	buf.WriteString(fmt.Sprintf("\treturn &%s{}\n", builderType))
+	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", builderType))
+	for _, assignment := range defaultAssignments(fields) {
+		buf.WriteString("\t\t" + assignment + "\n")
+	}
+	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
 
 	// Generate setter methods
@@ -335,7 +439,7 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	if g.config.ReturnValue {
 		returnType = g.typeReference()
 	}
-	if g.config.InitReturnsError {
+	if g.returnsError() {
 		returnType = fmt.Sprintf("(%s, error)", returnType)
 	}
 
@@ -352,6 +456,10 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 		buf.WriteString(fmt.Sprintf("\t\t%s: b.%s,\n", field.Name, localNames[field.Name]))
 	}
 	buf.WriteString("\t}\n")
+	if validation := g.requiredValidation("v"); validation != "" {
+		buf.WriteString(validation)
+		buf.WriteByte('\n')
+	}
 
 	// Handle init function
 	if g.config.InitFunc != "" {
@@ -368,7 +476,7 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 		}
 	}
 
-	if g.config.InitReturnsError {
+	if g.returnsError() {
 		buf.WriteString("\treturn v, nil\n")
 	} else {
 		buf.WriteString("\treturn v\n")
@@ -386,7 +494,7 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	if g.config.ReturnValue {
 		returnType = g.typeReference()
 	}
-	if g.config.InitReturnsError {
+	if g.returnsError() {
 		returnType = fmt.Sprintf("(%s, error)", returnType)
 	}
 
@@ -420,15 +528,20 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	buf.WriteString(fmt.Sprintf("// New%sWithOptions creates a new %s with functional options\n", g.info.Name, g.info.Name))
 	buf.WriteString(fmt.Sprintf("func New%sWithOptions%s(opts ...%s) %s {\n", g.info.Name, g.info.TypeParams, optionTypeReference, returnType))
 
-	if g.config.ReturnValue {
-		buf.WriteString(fmt.Sprintf("\tv := &%s{}\n", g.typeReference()))
-	} else {
-		buf.WriteString(fmt.Sprintf("\tv := &%s{}\n", g.typeReference()))
+	buf.WriteString(fmt.Sprintf("\tv := &%s{\n", g.typeReference()))
+	for _, assignment := range defaultAssignments(fields) {
+		buf.WriteString("\t\t" + assignment + "\n")
 	}
+	buf.WriteString("\t}\n")
 
 	buf.WriteString("\tfor _, opt := range opts {\n")
 	buf.WriteString("\t\topt(v)\n")
 	buf.WriteString("\t}\n")
+
+	if validation := g.requiredValidation("v"); validation != "" {
+		buf.WriteString(validation)
+		buf.WriteByte('\n')
+	}
 
 	// Handle init function
 	if g.config.InitFunc != "" {
@@ -446,13 +559,13 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	}
 
 	if g.config.ReturnValue {
-		if g.config.InitReturnsError {
+		if g.returnsError() {
 			buf.WriteString("\treturn *v, nil\n")
 		} else {
 			buf.WriteString("\treturn *v\n")
 		}
 	} else {
-		if g.config.InitReturnsError {
+		if g.returnsError() {
 			buf.WriteString("\treturn v, nil\n")
 		} else {
 			buf.WriteString("\treturn v\n")

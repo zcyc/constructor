@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -20,6 +21,7 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	}
 
 	var structInfo *StructInfo
+	var parseErr error
 
 	ast.Inspect(node, func(n ast.Node) bool {
 		// Look for type declarations
@@ -61,6 +63,21 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 			// Parse field skip options
 			skip, skipGetter, skipSetter := parseFieldSkipTags(tag)
+			defaultValue, required, err := parseConstructorFieldOptions(tag)
+			if err != nil {
+				parseErr = fmt.Errorf("invalid constructor options for field %s: %w", fieldNameForError(field), err)
+				return false
+			}
+			if (skip || skipSetter) && (defaultValue != "" || required) {
+				parseErr = fmt.Errorf("field %s cannot combine constructor default/required with skip or setter:false", fieldNameForError(field))
+				return false
+			}
+			if defaultValue != "" {
+				if _, err := parser.ParseExpr(defaultValue); err != nil {
+					parseErr = fmt.Errorf("invalid default for field %s: %w", fieldNameForError(field), err)
+					return false
+				}
+			}
 
 			// Handle embedded fields (no name)
 			if len(field.Names) == 0 {
@@ -76,6 +93,8 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 					Skip:       skip,
 					SkipGetter: skipGetter,
 					SkipSetter: skipSetter,
+					Default:    defaultValue,
+					Required:   required,
 				})
 				continue
 			}
@@ -94,6 +113,8 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 					Skip:       skip,
 					SkipGetter: skipGetter,
 					SkipSetter: skipSetter,
+					Default:    defaultValue,
+					Required:   required,
 				})
 			}
 		}
@@ -104,8 +125,53 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	if structInfo == nil {
 		return nil, fmt.Errorf("struct %s not found in file %s", structName, filename)
 	}
+	if parseErr != nil {
+		return nil, parseErr
+	}
 
 	return structInfo, nil
+}
+
+func fieldNameForError(field *ast.Field) string {
+	if len(field.Names) > 0 {
+		return field.Names[0].Name
+	}
+	return embeddedFieldName(field.Type)
+}
+
+func parseConstructorFieldOptions(tag string) (string, bool, error) {
+	if tag == "" {
+		return "", false, nil
+	}
+
+	value := reflect.StructTag(strings.Trim(tag, "`")).Get("constructor")
+	if value == "" {
+		return "", false, nil
+	}
+
+	var defaultValue string
+	var required bool
+	if index := strings.Index(value, "default="); index >= 0 {
+		for _, option := range strings.Split(strings.TrimSuffix(strings.TrimSpace(value[:index]), ","), ",") {
+			if strings.TrimSpace(option) == "required" {
+				required = true
+			}
+		}
+		defaultValue = strings.TrimSpace(value[index+len("default="):])
+		if defaultValue == "" {
+			return "", false, fmt.Errorf("default expression is empty")
+		}
+	} else {
+		for _, option := range strings.Split(value, ",") {
+			if strings.TrimSpace(option) == "required" {
+				required = true
+			}
+		}
+	}
+	if required && defaultValue != "" {
+		return "", false, fmt.Errorf("required cannot be combined with default")
+	}
+	return defaultValue, required, nil
 }
 
 // exprToString converts an ast.Expr to its string representation

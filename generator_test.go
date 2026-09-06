@@ -194,6 +194,59 @@ func (s *TestStruct) initialize() error { return errors.New("invalid") }
 	}
 }
 
+func TestGeneratedDefaultsAndRequiredFieldsTypeCheck(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		Imports:     []ImportInfo{{Path: "time"}},
+		Fields: []FieldInfo{
+			{Name: "name", Type: "string", Required: true},
+			{Name: "port", Type: "int", Default: "8080"},
+			{Name: "timeout", Type: "time.Duration", Default: "time.Second"},
+		},
+	}
+	code, err := NewGenerator(&GeneratorConfig{
+		ConstructorTypes: []string{"allArgs", "builder", "options"},
+	}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	for _, want := range []string{
+		"func NewConfig(name string) (*Config, error)",
+		"port:    8080",
+		"timeout: time.Second",
+		"func NewConfigBuilder() *ConfigBuilder",
+		"func (b *ConfigBuilder) Build() (*Config, error)",
+		"func NewConfigWithOptions(opts ...ConfigOption) (*Config, error)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated defaults/required code missing %q", want)
+		}
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "config.go", []byte(`package test
+
+import "time"
+
+type Config struct {
+	name string
+	port int
+	timeout time.Duration
+}
+`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "config_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated defaults/required code does not type-check: %v", err)
+	}
+}
+
 func TestGenerateWithReturnValue(t *testing.T) {
 	info := &StructInfo{
 		Name:        "TestStruct",

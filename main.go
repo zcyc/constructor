@@ -23,6 +23,9 @@ func main() {
 		returnValue      = flag.Bool("returnValue", false, "[optional] Return value instead of pointer")
 		setterPrefix     = flag.String("setterPrefix", "", "[optional] Prefix for setter methods in builder pattern (e.g., 'With')")
 		withGetter       = flag.Bool("withGetter", false, "[optional] Generate getter methods for private fields")
+		dryRun           = flag.Bool("dry-run", false, "[optional] Validate generated code without writing it")
+		stdoutOutput     = flag.Bool("stdout", false, "[optional] Write generated code to stdout instead of a file")
+		validateOnly     = flag.Bool("validate-only", false, "[optional] Validate the existing output file without generating")
 		showVersion      = flag.Bool("version", false, "[optional] Show version information")
 	)
 
@@ -42,6 +45,10 @@ func main() {
 	}
 	if *initReturnsError && *initFunc == "" {
 		fmt.Fprintf(os.Stderr, "Error: -initReturnsError requires -init\n")
+		os.Exit(1)
+	}
+	if *validateOnly && (*dryRun || *stdoutOutput) {
+		fmt.Fprintf(os.Stderr, "Error: -validate-only cannot be combined with -dry-run or -stdout\n")
 		os.Exit(1)
 	}
 
@@ -68,6 +75,23 @@ func main() {
 	if sameFile(sourceFile, output) {
 		fmt.Fprintf(os.Stderr, "Error: output file must not overwrite the source file %s\n", sourceFile)
 		os.Exit(1)
+	}
+	if *validateOnly {
+		code, err := os.ReadFile(output)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading output file: %v\n", err)
+			os.Exit(1)
+		}
+		if err := validateGeneratedDeclarations(sourceFile, output, string(code)); err != nil {
+			fmt.Fprintf(os.Stderr, "Error validating generated code: %v\n", err)
+			os.Exit(1)
+		}
+		if err := validateGeneratedPackage(sourceFile, output, string(code)); err != nil {
+			fmt.Fprintf(os.Stderr, "Error type-checking generated package: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Validation passed: %s\n", output)
+		return
 	}
 
 	// Parse constructor types
@@ -116,6 +140,17 @@ func main() {
 	if err := validateGeneratedPackage(sourceFile, output, code); err != nil {
 		fmt.Fprintf(os.Stderr, "Error type-checking generated package: %v\n", err)
 		os.Exit(1)
+	}
+	if *stdoutOutput {
+		if _, err := os.Stdout.WriteString(code); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing generated code to stdout: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *dryRun {
+		fmt.Fprintf(os.Stderr, "Validation passed; no file written: %s\n", output)
+		return
 	}
 
 	// Write to file

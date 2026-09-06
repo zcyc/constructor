@@ -25,6 +25,8 @@ type FieldInfo struct {
 	Skip       bool   // Whether to skip this field completely (from tag `constructor:"-"`)
 	SkipGetter bool   // Whether to skip getter generation (from tag `constructor:"getter:false"`)
 	SkipSetter bool   // Whether to skip setter/constructor parameter (from tag `constructor:"setter:false"`)
+	Default    string // Go expression used when the field is omitted (from tag `constructor:"default=..."`)
+	Required   bool   // Whether zero values are rejected after construction (from tag `constructor:"required"`)
 }
 
 // GeneratorConfig holds configuration for code generation

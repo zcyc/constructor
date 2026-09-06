@@ -10,7 +10,7 @@ A powerful Go code generator that creates constructor code for structs with supp
 - 🚀 **Multiple Constructor Patterns**: Generate all args, builder, or functional options patterns
 - 🔧 **Flexible Configuration**: Customize output with various flags
 - 🏷️ **Field Tagging**: Fine-grained control with `constructor:"-"`, `constructor:"getter:false"`, and
-  `constructor:"setter:false"` tags
+  `constructor:"setter:false"`, `constructor:"default=..."`, and `constructor:"required"` tags
 - 🎯 **Initialization Support**: Call init methods after construction
 - 📦 **Value or Pointer**: Return values or pointers based on your needs
 - 🔍 **Getter Generation**: Automatically generate getter methods for private fields
@@ -198,6 +198,8 @@ type Box[T any] struct {
 This generates `NewBox[T any](value T) *Box[T]`, `BoxBuilder[T]`, and
 `BoxOption[T]` APIs.
 
+For generic options, Go can infer only type parameters present in the option's arguments. If a type parameter appears only in another field, pass the type arguments explicitly or use the builder pattern.
+
 ## CLI Options
 
 ```bash
@@ -217,6 +219,9 @@ constructor [flags]
 | `-returnValue`      | Return value instead of pointer             | `false`         | `-returnValue`                              |
 | `-setterPrefix`     | Prefix for builder setter methods           | -               | `-setterPrefix=With`                        |
 | `-withGetter`       | Generate getter methods for private fields  | `false`         | `-withGetter`                               |
+| `-dry-run`          | Validate generated code without writing     | `false`         | `-dry-run`                                  |
+| `-stdout`           | Write generated code to stdout              | `false`         | `-stdout`                                   |
+| `-validate-only`    | Validate the existing output file           | `false`         | `-validate-only`                            |
 | `-version`          | Show version information                    | -               | `-version`                                  |
 
 ## Advanced Usage
@@ -269,6 +274,22 @@ type Config struct {
     port  int
 }
 ```
+
+### Defaults and Required Fields
+
+Use Go expressions for defaults and mark fields that must not remain zero:
+
+```go
+type Server struct {
+    name    string `constructor:"required"`
+    port    int    `constructor:"default=8080"`
+    timeout time.Duration `constructor:"default=time.Second"`
+}
+```
+
+Default fields are omitted from the all-args parameter list and initialized by all patterns. Required fields make generated constructors return `(*Server, error)` (or `(Server, error)` with `-returnValue`).
+
+Use `-dry-run` to validate without writing, `-stdout` to pipe generated code, and `-validate-only` to check an existing generated file.
 
 **Generated:**
 

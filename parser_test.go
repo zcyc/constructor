@@ -130,6 +130,29 @@ func TestParseFieldSkipTags(t *testing.T) {
 	}
 }
 
+func TestParseConstructorFieldOptions(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := "package test\n\ntype Config struct {\n\tname string `constructor:\"required\"`\n\tport int `constructor:\"default=8080\"`\n\tvalues []int `constructor:\"default=[]int{1,2}\"`\n}\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := ParseStruct(testFile, "Config")
+	if err != nil {
+		t.Fatalf("ParseStruct failed: %v", err)
+	}
+	if !info.Fields[0].Required || info.Fields[0].Default != "" {
+		t.Fatalf("required field parsed incorrectly: %+v", info.Fields[0])
+	}
+	if info.Fields[1].Default != "8080" || info.Fields[1].Required {
+		t.Fatalf("default field parsed incorrectly: %+v", info.Fields[1])
+	}
+	if info.Fields[2].Default != "[]int{1,2}" {
+		t.Fatalf("comma-containing default parsed incorrectly: %+v", info.Fields[2])
+	}
+}
+
 func TestStructInfoGetFieldsForConstructor(t *testing.T) {
 	info := &StructInfo{
 		Name: "Test",
