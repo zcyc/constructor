@@ -19,6 +19,7 @@ func main() {
 		constructorTypes = flag.String("constructorTypes", "allArgs", "[optional] Comma-separated list of constructor types: allArgs,builder,options")
 		outputFile       = flag.String("output", "", "[optional] Output file path (default: <source_dir>/<type>_gen.go)")
 		initFunc         = flag.String("init", "", "[optional] Name of initialization method to call after construction")
+		initReturnsError = flag.Bool("initReturnsError", false, "[optional] Return initialization errors from constructors")
 		returnValue      = flag.Bool("returnValue", false, "[optional] Return value instead of pointer")
 		setterPrefix     = flag.String("setterPrefix", "", "[optional] Prefix for setter methods in builder pattern (e.g., 'With')")
 		withGetter       = flag.Bool("withGetter", false, "[optional] Generate getter methods for private fields")
@@ -37,6 +38,10 @@ func main() {
 	if *typeName == "" {
 		fmt.Fprintf(os.Stderr, "Error: -type flag is mandatory\n\n")
 		flag.Usage()
+		os.Exit(1)
+	}
+	if *initReturnsError && *initFunc == "" {
+		fmt.Fprintf(os.Stderr, "Error: -initReturnsError requires -init\n")
 		os.Exit(1)
 	}
 
@@ -91,6 +96,7 @@ func main() {
 		ConstructorTypes: types,
 		OutputFile:       output,
 		InitFunc:         *initFunc,
+		InitReturnsError: *initReturnsError,
 		ReturnValue:      *returnValue,
 		SetterPrefix:     *setterPrefix,
 		WithGetter:       *withGetter,

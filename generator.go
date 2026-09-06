@@ -30,6 +30,10 @@ func NewGenerator(config *GeneratorConfig, info *StructInfo) *Generator {
 
 // Generate generates constructor code based on configuration
 func (g *Generator) Generate() (string, error) {
+	if g.config.InitReturnsError && g.config.InitFunc == "" {
+		return "", fmt.Errorf("initReturnsError requires InitFunc")
+	}
+
 	var buf bytes.Buffer
 
 	// Write package declaration
@@ -217,11 +221,13 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 		assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, paramName))
 	}
 
-	returnType := "*" + g.typeReference()
+	baseReturnType := "*" + g.typeReference()
+	returnType := baseReturnType
 	varDecl := "return &"
 	returnValue := ""
 
 	if g.config.ReturnValue {
+		baseReturnType = g.typeReference()
 		returnType = g.typeReference()
 		varDecl = "return "
 		returnValue = ""
@@ -237,7 +243,17 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 			varDecl = "v := &"
 			returnValue = "v"
 		}
-		initCall = fmt.Sprintf("\n\tv.%s()", g.config.InitFunc)
+		if g.config.InitReturnsError {
+			returnValue = "v, nil"
+			returnType = fmt.Sprintf("(%s, error)", baseReturnType)
+			if g.config.ReturnValue {
+				initCall = fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn *new(%s), err\n\t}", g.config.InitFunc, g.typeReference())
+			} else {
+				initCall = fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn nil, err\n\t}", g.config.InitFunc)
+			}
+		} else {
+			initCall = fmt.Sprintf("\n\tv.%s()", g.config.InitFunc)
+		}
 	} else {
 		// No init function, so returnValue stays empty for direct return
 		returnValue = ""
@@ -319,6 +335,9 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	if g.config.ReturnValue {
 		returnType = g.typeReference()
 	}
+	if g.config.InitReturnsError {
+		returnType = fmt.Sprintf("(%s, error)", returnType)
+	}
 
 	buf.WriteString(fmt.Sprintf("// Build builds the %s\n", g.info.Name))
 	buf.WriteString(fmt.Sprintf("func (b *%s) Build() %s {\n", builderType, returnType))
@@ -336,10 +355,24 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 
 	// Handle init function
 	if g.config.InitFunc != "" {
-		buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+		if g.config.InitReturnsError {
+			buf.WriteString(fmt.Sprintf("\tif err := v.%s(); err != nil {\n", g.config.InitFunc))
+			if g.config.ReturnValue {
+				buf.WriteString(fmt.Sprintf("\t\treturn *new(%s), err\n", g.typeReference()))
+			} else {
+				buf.WriteString("\t\treturn nil, err\n")
+			}
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+		}
 	}
 
-	buf.WriteString("\treturn v\n")
+	if g.config.InitReturnsError {
+		buf.WriteString("\treturn v, nil\n")
+	} else {
+		buf.WriteString("\treturn v\n")
+	}
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
@@ -352,6 +385,9 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	returnType := "*" + g.typeReference()
 	if g.config.ReturnValue {
 		returnType = g.typeReference()
+	}
+	if g.config.InitReturnsError {
+		returnType = fmt.Sprintf("(%s, error)", returnType)
 	}
 
 	// Generate option type
@@ -396,13 +432,31 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 
 	// Handle init function
 	if g.config.InitFunc != "" {
-		buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+		if g.config.InitReturnsError {
+			buf.WriteString(fmt.Sprintf("\tif err := v.%s(); err != nil {\n", g.config.InitFunc))
+			if g.config.ReturnValue {
+				buf.WriteString(fmt.Sprintf("\t\treturn *new(%s), err\n", g.typeReference()))
+			} else {
+				buf.WriteString("\t\treturn nil, err\n")
+			}
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+		}
 	}
 
 	if g.config.ReturnValue {
-		buf.WriteString("\treturn *v\n")
+		if g.config.InitReturnsError {
+			buf.WriteString("\treturn *v, nil\n")
+		} else {
+			buf.WriteString("\treturn *v\n")
+		}
 	} else {
-		buf.WriteString("\treturn v\n")
+		if g.config.InitReturnsError {
+			buf.WriteString("\treturn v, nil\n")
+		} else {
+			buf.WriteString("\treturn v\n")
+		}
 	}
 	buf.WriteString("}\n")
 

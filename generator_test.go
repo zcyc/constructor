@@ -155,6 +155,45 @@ func TestGenerateWithInitFunc(t *testing.T) {
 	}
 }
 
+func TestGeneratedInitErrorCodeTypeChecks(t *testing.T) {
+	for _, returnValue := range []bool{false, true} {
+		info := &StructInfo{
+			Name:        "TestStruct",
+			PackageName: "test",
+			Fields:      []FieldInfo{{Name: "name", Type: "string"}},
+		}
+		code, err := NewGenerator(&GeneratorConfig{
+			ConstructorTypes: []string{"allArgs", "builder", "options"},
+			InitFunc:         "initialize",
+			InitReturnsError: true,
+			ReturnValue:      returnValue,
+		}, info).Generate()
+		if err != nil {
+			t.Fatalf("Generate failed: %v", err)
+		}
+
+		fset := token.NewFileSet()
+		source, err := goparser.ParseFile(fset, "source.go", []byte(`package test
+
+import "errors"
+
+type TestStruct struct { name string }
+
+func (s *TestStruct) initialize() error { return errors.New("invalid") }
+`), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		generated, err := goparser.ParseFile(fset, "generated.go", []byte(code), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+			t.Fatalf("generated init error code does not type-check (returnValue=%t): %v", returnValue, err)
+		}
+	}
+}
+
 func TestGenerateWithReturnValue(t *testing.T) {
 	info := &StructInfo{
 		Name:        "TestStruct",

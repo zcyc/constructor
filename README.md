@@ -213,6 +213,7 @@ constructor [flags]
 | `-constructorTypes` | Comma-separated list of patterns            | `allArgs`       | `-constructorTypes=allArgs,builder,options` |
 | `-output`           | Output file path                            | `<type>_gen.go` | `-output=constructors.go`                   |
 | `-init`             | Init method name to call after construction | -               | `-init=initialize`                          |
+| `-initReturnsError` | Return an init method error from constructors | `false`         | `-initReturnsError`                         |
 | `-returnValue`      | Return value instead of pointer             | `false`         | `-returnValue`                              |
 | `-setterPrefix`     | Prefix for builder setter methods           | -               | `-setterPrefix=With`                        |
 | `-withGetter`       | Generate getter methods for private fields  | `false`         | `-withGetter`                               |
@@ -233,6 +234,16 @@ type Service struct {
 
 func (s *Service) initialize() {
     s.logger.Info("Service initialized")
+}
+```
+
+If initialization can fail, make it return `error` and enable `-initReturnsError`. All generated constructors then return `(*Service, error)` (or `(Service, error)` with `-returnValue`):
+
+```go
+//go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize -initReturnsError
+
+func (s *Service) initialize() error {
+    return nil
 }
 ```
 

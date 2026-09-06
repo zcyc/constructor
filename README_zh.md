@@ -213,6 +213,7 @@ constructor [flags]
 | `-constructorTypes` | 逗号分隔的模式列表         | `allArgs`       | `-constructorTypes=allArgs,builder,options` |
 | `-output`           | 输出文件路径            | `<type>_gen.go` | `-output=constructors.go`                   |
 | `-init`             | 构造后调用的初始化方法名称     | -               | `-init=initialize`                          |
+| `-initReturnsError` | 将初始化方法错误返回给调用方   | `false`         | `-initReturnsError`                         |
 | `-returnValue`      | 返回值而不是指针          | `false`         | `-returnValue`                              |
 | `-setterPrefix`     | 建造者 setter 方法的前缀  | -               | `-setterPrefix=With`                        |
 | `-withGetter`       | 为私有字段生成 getter 方法 | `false`         | `-withGetter`                               |
@@ -233,6 +234,16 @@ type Service struct {
 
 func (s *Service) initialize() {
     s.logger.Info("Service initialized")
+}
+```
+
+如果初始化可能失败，让方法返回 `error`，并启用 `-initReturnsError`。此时所有生成的构造函数都会返回 `(*Service, error)`（配合 `-returnValue` 时返回 `(Service, error)`）：
+
+```go
+//go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize -initReturnsError
+
+func (s *Service) initialize() error {
+    return nil
 }
 ```
 

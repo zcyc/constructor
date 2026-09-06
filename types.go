@@ -33,6 +33,7 @@ type GeneratorConfig struct {
 	ConstructorTypes []string // Types: "allArgs", "builder", "options"
 	OutputFile       string   // Output file path
 	InitFunc         string   // Initialization function name (optional)
+	InitReturnsError bool     // Whether the initialization function returns an error
 	ReturnValue      bool     // Return value instead of pointer
 	SetterPrefix     string   // Prefix for setter methods in builder (e.g., "With")
 	WithGetter       bool     // Generate getter methods
