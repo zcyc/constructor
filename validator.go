@@ -1,16 +1,94 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// validateGeneratedPackage runs the generated file through the package's real
+// module-aware build, catching unresolved imports and type errors.
+func validateGeneratedPackage(sourceFile, outputFile, generated string) error {
+	dir, err := filepath.Abs(filepath.Dir(sourceFile))
+	if err != nil {
+		return fmt.Errorf("resolve package directory: %w", err)
+	}
+
+	candidate, err := os.CreateTemp(dir, "constructor-validate-*.go")
+	if err != nil {
+		return fmt.Errorf("create validation file: %w", err)
+	}
+	candidatePath := candidate.Name()
+	defer os.Remove(candidatePath)
+	if _, err := candidate.WriteString(generated); err != nil {
+		candidate.Close()
+		return fmt.Errorf("write validation file: %w", err)
+	}
+	if err := candidate.Close(); err != nil {
+		return fmt.Errorf("close validation file: %w", err)
+	}
+
+	overlay := struct {
+		Replace map[string]string `json:"Replace"`
+	}{Replace: map[string]string{}}
+	outputPath, err := filepath.Abs(outputFile)
+	if err != nil {
+		return fmt.Errorf("resolve output file: %w", err)
+	}
+	if filepath.Dir(outputPath) == dir {
+		if _, err := os.Stat(outputPath); err == nil {
+			overlay.Replace[outputPath] = ""
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect output file: %w", err)
+		}
+	}
+
+	args := []string{"build"}
+	var overlayPath string
+	if len(overlay.Replace) > 0 {
+		overlayFile, err := os.CreateTemp("", "constructor-overlay-*.json")
+		if err != nil {
+			return fmt.Errorf("create build overlay: %w", err)
+		}
+		overlayPath = overlayFile.Name()
+		defer os.Remove(overlayPath)
+		data, err := json.Marshal(overlay)
+		if err != nil {
+			overlayFile.Close()
+			return fmt.Errorf("encode build overlay: %w", err)
+		}
+		if _, err := overlayFile.Write(data); err != nil {
+			overlayFile.Close()
+			return fmt.Errorf("write build overlay: %w", err)
+		}
+		if err := overlayFile.Close(); err != nil {
+			return fmt.Errorf("close build overlay: %w", err)
+		}
+		args = append(args, "-overlay", overlayPath)
+	}
+	args = append(args, ".")
+
+	command := exec.Command("go", args...)
+	command.Dir = dir
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return fmt.Errorf("module type check failed: %s", message)
+		}
+		return fmt.Errorf("module type check failed: %w", err)
+	}
+	return nil
+}
 
 // validateGeneratedDeclarations prevents generated top-level declarations and
 // methods from silently colliding with code already in the package.

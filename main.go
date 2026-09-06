@@ -113,6 +113,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error validating generated code: %v\n", err)
 		os.Exit(1)
 	}
+	if err := validateGeneratedPackage(sourceFile, output, code); err != nil {
+		fmt.Fprintf(os.Stderr, "Error type-checking generated package: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Write to file
 	if err := os.WriteFile(output, []byte(code), 0644); err != nil {
