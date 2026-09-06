@@ -184,6 +184,20 @@ func NewServerWithOptions(opts ...ServerOption) *Server {
 }
 ```
 
+### Generic Structs
+
+Generic structs keep their type parameters across every generated pattern:
+
+```go
+//go:generate constructor -type=Box -constructorTypes=allArgs,builder,options
+type Box[T any] struct {
+    value T
+}
+```
+
+This generates `NewBox[T any](value T) *Box[T]`, `BoxBuilder[T]`, and
+`BoxOption[T]` APIs.
+
 ## CLI Options
 
 ```bash
@@ -195,6 +209,7 @@ constructor [flags]
 | Flag                | Description                                 | Default         | Example                                     |
 |---------------------|---------------------------------------------|-----------------|---------------------------------------------|
 | `-type`             | **[Required]** Struct type name             | -               | `-type=User`                                |
+| `-input`            | Go source file containing the struct        | auto-detect     | `-input=user.go`                            |
 | `-constructorTypes` | Comma-separated list of patterns            | `allArgs`       | `-constructorTypes=allArgs,builder,options` |
 | `-output`           | Output file path                            | `<type>_gen.go` | `-output=constructors.go`                   |
 | `-init`             | Init method name to call after construction | -               | `-init=initialize`                          |

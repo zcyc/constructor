@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"go/build"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ func main() {
 	// Define flags
 	var (
 		typeName         = flag.String("type", "", "[mandatory] The struct type name to generate constructor for")
+		inputFile        = flag.String("input", "", "[optional] Go source file containing the struct")
 		constructorTypes = flag.String("constructorTypes", "allArgs", "[optional] Comma-separated list of constructor types: allArgs,builder,options")
 		outputFile       = flag.String("output", "", "[optional] Output file path (default: <source_dir>/<type>_gen.go)")
 		initFunc         = flag.String("init", "", "[optional] Name of initialization method to call after construction")
@@ -39,7 +41,7 @@ func main() {
 	}
 
 	// Find the source file containing the struct
-	sourceFile, err := findSourceFile(*typeName)
+	sourceFile, err := findSourceFile(*typeName, *inputFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -57,6 +59,10 @@ func main() {
 	if output == "" {
 		dir := filepath.Dir(sourceFile)
 		output = filepath.Join(dir, strings.ToLower(*typeName)+"_gen.go")
+	}
+	if sameFile(sourceFile, output) {
+		fmt.Fprintf(os.Stderr, "Error: output file must not overwrite the source file %s\n", sourceFile)
+		os.Exit(1)
 	}
 
 	// Parse constructor types
@@ -97,6 +103,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error generating code: %v\n", err)
 		os.Exit(1)
 	}
+	if err := validateGeneratedDeclarations(sourceFile, output, code); err != nil {
+		fmt.Fprintf(os.Stderr, "Error validating generated code: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Write to file
 	if err := os.WriteFile(output, []byte(code), 0644); err != nil {
@@ -107,8 +117,18 @@ func main() {
 	fmt.Printf("Generated constructor code in %s\n", output)
 }
 
+func sameFile(first, second string) bool {
+	first, firstErr := filepath.Abs(first)
+	second, secondErr := filepath.Abs(second)
+	return firstErr == nil && secondErr == nil && filepath.Clean(first) == filepath.Clean(second)
+}
+
 // findSourceFile searches for a Go file containing the struct definition
-func findSourceFile(typeName string) (string, error) {
+func findSourceFile(typeName, inputFile string) (string, error) {
+	if inputFile != "" {
+		return filepath.Clean(inputFile), nil
+	}
+
 	// First, check if GOFILE environment variable is set (set by go generate)
 	if gofile := os.Getenv("GOFILE"); gofile != "" {
 		return gofile, nil
@@ -123,13 +143,20 @@ func findSourceFile(typeName string) (string, error) {
 	// Try to find the struct in each file
 	for _, file := range files {
 		// Skip generated files
-		if strings.HasSuffix(file, "_gen.go") {
+		if strings.HasSuffix(file, "_gen.go") || strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		matched, err := build.Default.MatchFile(".", file)
+		if err != nil {
+			return "", fmt.Errorf("failed to match build constraints for %s: %w", file, err)
+		}
+		if !matched {
 			continue
 		}
 
 		// Try to parse the file
-		_, err := ParseStruct(file, typeName)
-		if err == nil {
+		_, parseErr := ParseStruct(file, typeName)
+		if parseErr == nil {
 			return file, nil
 		}
 	}

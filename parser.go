@@ -45,6 +45,8 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 			PackageName: node.Name.Name,
 			Fields:      []FieldInfo{},
 			Imports:     parseImports(node.Imports),
+			TypeParams:  typeParamDecl(typeSpec.TypeParams),
+			TypeArgs:    typeParamArgs(typeSpec.TypeParams),
 		}
 
 		// Parse each field
@@ -108,11 +110,57 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 // exprToString converts an ast.Expr to its string representation
 func exprToString(expr ast.Expr) string {
+	return nodeToString(expr)
+}
+
+func nodeToString(node ast.Node) string {
+	if node == nil {
+		return ""
+	}
 	var buf bytes.Buffer
-	if err := printer.Fprint(&buf, token.NewFileSet(), expr); err != nil {
+	if err := printer.Fprint(&buf, token.NewFileSet(), node); err != nil {
 		return ""
 	}
 	return buf.String()
+}
+
+func typeParamArgs(params *ast.FieldList) string {
+	if params == nil {
+		return ""
+	}
+
+	names := make([]string, 0)
+	for _, field := range params.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(names, ", ") + "]"
+}
+
+func typeParamDecl(params *ast.FieldList) string {
+	if params == nil {
+		return ""
+	}
+
+	parts := make([]string, 0, len(params.List))
+	for _, field := range params.List {
+		names := make([]string, 0, len(field.Names))
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+		if len(names) == 0 {
+			continue
+		}
+		parts = append(parts, strings.Join(names, ", ")+" "+nodeToString(field.Type))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 func parseImports(specs []*ast.ImportSpec) []ImportInfo {

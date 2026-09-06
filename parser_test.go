@@ -266,3 +266,33 @@ type Container struct {
 		t.Fatalf("embedded field = %#v, want field named Base", info.Fields)
 	}
 }
+
+func TestParseGenericStruct(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+
+	content := `package test
+
+import "io"
+
+type Box[T io.Reader, U comparable] struct {
+	value T
+	other U
+}
+`
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := ParseStruct(testFile, "Box")
+	if err != nil {
+		t.Fatalf("ParseStruct failed: %v", err)
+	}
+
+	if info.TypeParams != "[T io.Reader, U comparable]" {
+		t.Fatalf("TypeParams = %q", info.TypeParams)
+	}
+	if info.TypeArgs != "[T, U]" {
+		t.Fatalf("TypeArgs = %q", info.TypeArgs)
+	}
+}

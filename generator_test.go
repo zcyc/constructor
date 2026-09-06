@@ -1,6 +1,11 @@
 package main
 
 import (
+	"go/ast"
+	"go/importer"
+	goparser "go/parser"
+	"go/token"
+	"go/types"
 	"strings"
 	"testing"
 )
@@ -311,6 +316,96 @@ func TestGenerateIncludesOnlyUsedImports(t *testing.T) {
 	}
 	if strings.Contains(code, `"fmt"`) {
 		t.Error("generated code should not import unused fmt")
+	}
+}
+
+func TestGenerateGenericStruct(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Box",
+		PackageName: "test",
+		Imports:     []ImportInfo{{Path: "io"}},
+		TypeParams:  "[T io.Reader, U comparable]",
+		TypeArgs:    "[T, U]",
+		Fields: []FieldInfo{
+			{Name: "value", Type: "T"},
+			{Name: "other", Type: "U"},
+		},
+	}
+
+	code, err := NewGenerator(&GeneratorConfig{
+		ConstructorTypes: []string{"allArgs", "builder", "options"},
+		WithGetter:       true,
+	}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, `"io"`) {
+		t.Error("generated generic code should import io for its type constraint")
+	}
+
+	for _, want := range []string{
+		"func NewBox[T io.Reader, U comparable](value T, other U) *Box[T, U]",
+		"type BoxBuilder[T io.Reader, U comparable] struct",
+		"func NewBoxBuilder[T io.Reader, U comparable]() *BoxBuilder[T, U]",
+		"func (b *BoxBuilder[T, U]) Build() *Box[T, U]",
+		"type BoxOption[T io.Reader, U comparable] func(*Box[T, U])",
+		"func WithValue[T io.Reader, U comparable](value T) BoxOption[T, U]",
+		"func NewBoxWithOptions[T io.Reader, U comparable](opts ...BoxOption[T, U]) *Box[T, U]",
+		"func (b *Box[T, U]) GetValue() T",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("generated generic code missing %q", want)
+		}
+	}
+}
+
+func TestGeneratedGenericCodeTypeChecks(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Box",
+		PackageName: "test",
+		Imports:     []ImportInfo{{Path: "io"}},
+		TypeParams:  "[T io.Reader, U comparable]",
+		TypeArgs:    "[T, U]",
+		Fields: []FieldInfo{
+			{Name: "value", Type: "T"},
+			{Name: "other", Type: "U"},
+		},
+	}
+	code, err := NewGenerator(&GeneratorConfig{
+		ConstructorTypes: []string{"allArgs", "builder", "options"},
+		WithGetter:       true,
+	}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "box.go", []byte(`package test
+
+import "io"
+
+type Box[T io.Reader, U comparable] struct {
+	value T
+	other U
+}
+
+func use(r io.Reader) {
+	_ = NewBox(r, 1)
+	_ = NewBoxBuilder[io.Reader, int]().Value(r).Other(1).Build()
+	_ = NewBoxWithOptions[io.Reader, int](WithValue[io.Reader, int](r), WithOther[io.Reader, int](1))
+}
+`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "box_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil)
+	if err != nil {
+		t.Fatalf("generated generic code does not type-check: %v", err)
 	}
 }
 

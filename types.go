@@ -6,6 +6,8 @@ type StructInfo struct {
 	Fields      []FieldInfo  // List of fields
 	PackageName string       // Package name
 	Imports     []ImportInfo // Imports used by generated field types
+	TypeParams  string       // Type parameter declaration, e.g. "[T any]"
+	TypeArgs    string       // Type argument list, e.g. "[T]"
 }
 
 // ImportInfo describes an import declaration from the source file.

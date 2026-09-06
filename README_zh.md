@@ -185,6 +185,19 @@ func NewServerWithOptions(opts ...ServerOption) *Server {
 }
 ```
 
+### 泛型结构体
+
+泛型结构体的类型参数会同步保留到所有生成模式：
+
+```go
+//go:generate constructor -type=Box -constructorTypes=allArgs,builder,options
+type Box[T any] struct {
+    value T
+}
+```
+
+会生成 `NewBox[T any](value T) *Box[T]`、`BoxBuilder[T]` 和 `BoxOption[T]`。
+
 ## 命令行选项
 
 ```bash
@@ -196,6 +209,7 @@ constructor [flags]
 | 标志                  | 描述                | 默认值             | 示例                                          |
 |---------------------|-------------------|-----------------|---------------------------------------------|
 | `-type`             | **[必需]** 结构体类型名称  | -               | `-type=User`                                |
+| `-input`            | 包含结构体的 Go 源文件     | 自动查找          | `-input=user.go`                            |
 | `-constructorTypes` | 逗号分隔的模式列表         | `allArgs`       | `-constructorTypes=allArgs,builder,options` |
 | `-output`           | 输出文件路径            | `<type>_gen.go` | `-output=constructors.go`                   |
 | `-init`             | 构造后调用的初始化方法名称     | -               | `-init=initialize`                          |
