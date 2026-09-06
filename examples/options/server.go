@@ -1,6 +1,6 @@
 package options
 
-//go:generate go run ../../. -type=Server -constructorTypes=options -withGetter
+//go:generate go run ../../. -type=Server -constructor-types=options -getters
 
 // Server represents a server configuration
 // This example demonstrates:

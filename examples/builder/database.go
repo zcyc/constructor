@@ -1,6 +1,6 @@
 package builder
 
-//go:generate go run ../../. -type=Database -constructorTypes=builder -withGetter
+//go:generate go run ../../. -type=Database -constructor-types=builder -getters
 
 // Database represents a database configuration
 // This example demonstrates:

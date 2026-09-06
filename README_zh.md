@@ -34,7 +34,7 @@ package mypackage
 
 import "time"
 
-//go:generate constructor -type=User -constructorTypes=allArgs,builder,options
+//go:generate constructor -type=User -constructor-types=all-args,builder,options
 type User struct {
 	id        int
 	name      string
@@ -80,7 +80,7 @@ user3 := NewUserWithOptions(
 生成一个接受所有字段作为参数的简单构造函数。
 
 ```go
-//go:generate constructor -type=Config -constructorTypes=allArgs
+//go:generate constructor -type=Config -constructor-types=all-args
 type Config struct {
     host string
     port int
@@ -103,7 +103,7 @@ func NewConfig(host string, port int) *Config {
 生成一个带有流畅 setter 方法的建造者结构体。
 
 ```go
-//go:generate constructor -type=Service -constructorTypes=builder -setterPrefix=With
+//go:generate constructor -type=Service -constructor-types=builder -setter-prefix=With
 type Service struct {
     db     *sql.DB
     cache  Cache
@@ -145,7 +145,7 @@ func (b *ServiceBuilder) Build() *Service {
 生成用于灵活配置的选项函数。
 
 ```go
-//go:generate constructor -type=Server -constructorTypes=options
+//go:generate constructor -type=Server -constructor-types=options
 type Server struct {
     host    string
     port    int
@@ -190,7 +190,7 @@ func NewServerWithOptions(opts ...ServerOption) *Server {
 泛型结构体的类型参数会同步保留到所有生成模式：
 
 ```go
-//go:generate constructor -type=Box -constructorTypes=allArgs,builder,options
+//go:generate constructor -type=Box -constructor-types=all-args,builder,options
 type Box[T any] struct {
     value T
 }
@@ -212,13 +212,13 @@ constructor [flags]
 |---------------------|-------------------|-----------------|---------------------------------------------|
 | `-type`             | **[必需]** 结构体类型名称  | -               | `-type=User`                                |
 | `-input`            | 包含结构体的 Go 源文件     | 自动查找          | `-input=user.go`                            |
-| `-constructorTypes` | 逗号分隔的模式列表         | `allArgs`       | `-constructorTypes=allArgs,builder,options` |
+| `-constructor-types` | 逗号分隔的模式列表         | `all-args`      | `-constructor-types=all-args,builder,options` |
 | `-output`           | 输出文件路径            | `<type>_gen.go` | `-output=constructors.go`                   |
 | `-init`             | 构造后调用的初始化方法名称     | -               | `-init=initialize`                          |
-| `-initReturnsError` | 将初始化方法错误返回给调用方   | `false`         | `-initReturnsError`                         |
-| `-returnValue`      | 返回值而不是指针          | `false`         | `-returnValue`                              |
-| `-setterPrefix`     | 建造者 setter 方法的前缀  | -               | `-setterPrefix=With`                        |
-| `-withGetter`       | 为私有字段生成 getter 方法 | `false`         | `-withGetter`                               |
+| `-init-returns-error` | 将初始化方法错误返回给调用方   | `false`         | `-init-returns-error`                         |
+| `-return-value`      | 返回值而不是指针          | `false`         | `-return-value`                              |
+| `-setter-prefix`     | 建造者 setter 方法的前缀  | -               | `-setter-prefix=With`                        |
+| `-getters`           | 为私有字段生成 getter 方法 | `false`         | `-getters`                                   |
 | `-dry-run`          | 校验生成结果但不写入文件   | `false`         | `-dry-run`                                  |
 | `-stdout`           | 将生成代码输出到标准输出   | `false`         | `-stdout`                                   |
 | `-validate-only`    | 只校验已有生成文件         | `false`         | `-validate-only`                            |
@@ -231,7 +231,7 @@ constructor [flags]
 在构造后调用初始化方法：
 
 ```go
-//go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize
+//go:generate constructor -type=Service -constructor-types=all-args -init=initialize
 type Service struct {
     db     *sql.DB
     logger Logger
@@ -242,10 +242,10 @@ func (s *Service) initialize() {
 }
 ```
 
-如果初始化可能失败，让方法返回 `error`，并启用 `-initReturnsError`。此时所有生成的构造函数都会返回 `(*Service, error)`（配合 `-returnValue` 时返回 `(Service, error)`）：
+如果初始化可能失败，让方法返回 `error`，并启用 `-init-returns-error`。此时所有生成的构造函数都会返回 `(*Service, error)`（配合 `-return-value` 时返回 `(Service, error)`）：
 
 ```go
-//go:generate constructor -type=Service -constructorTypes=allArgs -init=initialize -initReturnsError
+//go:generate constructor -type=Service -constructor-types=all-args -init=initialize -init-returns-error
 
 func (s *Service) initialize() error {
     return nil
@@ -268,7 +268,7 @@ func NewService(db *sql.DB, logger Logger) *Service {
 ### 返回值而不是指针
 
 ```go
-//go:generate constructor -type=Config -constructorTypes=allArgs -returnValue
+//go:generate constructor -type=Config -constructor-types=all-args -return-value
 type Config struct {
     debug bool
     port  int
@@ -287,7 +287,7 @@ type Server struct {
 }
 ```
 
-带默认值的字段会从 all-args 参数列表中移除，并由三种模式自动初始化。必填字段会让生成的构造函数返回 `(*Server, error)`（配合 `-returnValue` 时返回 `(Server, error)`）。
+带默认值的字段会从 all-args 参数列表中移除，并由三种模式自动初始化。必填字段会让生成的构造函数返回 `(*Server, error)`（配合 `-return-value` 时返回 `(Server, error)`）。
 
 `-dry-run` 用于只校验不写文件，`-stdout` 用于管道输出代码，`-validate-only` 用于校验已有生成文件。
 
@@ -305,7 +305,7 @@ func NewConfig(debug bool, port int) Config {
 ### 生成 Getter 方法
 
 ```go
-//go:generate constructor -type=Repository -constructorTypes=allArgs -withGetter
+//go:generate constructor -type=Repository -constructor-types=all-args -getters
 type Repository struct {
     tableName string
     db        *sql.DB
@@ -340,7 +340,7 @@ GoConstructor 支持使用结构体标签对字段行为进行细粒度控制：
 完全跳过字段（不作为构造函数参数，也不生成 getter）：
 
 ```go
-//go:generate constructor -type=User -constructorTypes=allArgs -withGetter
+//go:generate constructor -type=User -constructor-types=all-args -getters
 type User struct {
     name     string
     email    string
@@ -375,7 +375,7 @@ func (u *User) GetEmail() string {
 在构造函数中包含字段但不生成 getter：
 
 ```go
-//go:generate constructor -type=Product -constructorTypes=allArgs -withGetter
+//go:generate constructor -type=Product -constructor-types=all-args -getters
 type Product struct {
     id          int
     name        string
@@ -409,7 +409,7 @@ func (p *Product) GetName() string {
 生成 getter 但不包含在构造函数中：
 
 ```go
-//go:generate constructor -type=Service -constructorTypes=builder -withGetter
+//go:generate constructor -type=Service -constructor-types=builder -getters
 type Service struct {
     host        string
     port        int
@@ -440,7 +440,7 @@ func (s *Service) GetConnCount() int { return s.connCount } // Getter 存在
 ### 带前缀的建造者
 
 ```go
-//go:generate constructor -type=Client -constructorTypes=builder -setterPrefix=With
+//go:generate constructor -type=Client -constructor-types=builder -setter-prefix=With
 type Client struct {
     host string
     port int
@@ -459,7 +459,7 @@ func (b *ClientBuilder) WithPort(port int) *ClientBuilder { ... }
 在单个文件中生成多种构造函数模式：
 
 ```go
-//go:generate constructor -type=User -constructorTypes=allArgs,builder,options
+//go:generate constructor -type=User -constructor-types=all-args,builder,options
 type User struct {
     name  string
     email string
@@ -473,7 +473,7 @@ type User struct {
 对于团队协作，您可以在不手动安装的情况下运行生成器：
 
 ```go
-//go:generate go run github.com/zcyc/constructor@latest -type=User -constructorTypes=allArgs
+//go:generate go run github.com/zcyc/constructor@latest -type=User -constructor-types=all-args
 type User struct {
     name string
 }

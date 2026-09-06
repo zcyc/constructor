@@ -16,13 +16,13 @@ func main() {
 	var (
 		typeName         = flag.String("type", "", "[mandatory] The struct type name to generate constructor for")
 		inputFile        = flag.String("input", "", "[optional] Go source file containing the struct")
-		constructorTypes = flag.String("constructorTypes", "allArgs", "[optional] Comma-separated list of constructor types: allArgs,builder,options")
+		constructorTypes = flag.String("constructor-types", "all-args", "[optional] Comma-separated constructor patterns: all-args,builder,options")
 		outputFile       = flag.String("output", "", "[optional] Output file path (default: <source_dir>/<type>_gen.go)")
 		initFunc         = flag.String("init", "", "[optional] Name of initialization method to call after construction")
-		initReturnsError = flag.Bool("initReturnsError", false, "[optional] Return initialization errors from constructors")
-		returnValue      = flag.Bool("returnValue", false, "[optional] Return value instead of pointer")
-		setterPrefix     = flag.String("setterPrefix", "", "[optional] Prefix for setter methods in builder pattern (e.g., 'With')")
-		withGetter       = flag.Bool("withGetter", false, "[optional] Generate getter methods for private fields")
+		initReturnsError = flag.Bool("init-returns-error", false, "[optional] Return initialization errors from constructors")
+		returnValue      = flag.Bool("return-value", false, "[optional] Return value instead of pointer")
+		setterPrefix     = flag.String("setter-prefix", "", "[optional] Prefix for builder setter methods in builder pattern (e.g., 'With')")
+		withGetter       = flag.Bool("getters", false, "[optional] Generate getter methods for private fields")
 		dryRun           = flag.Bool("dry-run", false, "[optional] Validate generated code without writing it")
 		stdoutOutput     = flag.Bool("stdout", false, "[optional] Write generated code to stdout instead of a file")
 		validateOnly     = flag.Bool("validate-only", false, "[optional] Validate the existing output file without generating")
@@ -44,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *initReturnsError && *initFunc == "" {
-		fmt.Fprintf(os.Stderr, "Error: -initReturnsError requires -init\n")
+		fmt.Fprintf(os.Stderr, "Error: -init-returns-error requires -init\n")
 		os.Exit(1)
 	}
 	if *validateOnly && (*dryRun || *stdoutOutput) {
@@ -98,17 +98,20 @@ func main() {
 	types := strings.Split(*constructorTypes, ",")
 	for i, t := range types {
 		types[i] = strings.TrimSpace(t)
+		if types[i] == "all-args" {
+			types[i] = "allArgs"
+		}
 	}
 
 	// Validate constructor types
 	seenTypes := make(map[string]struct{}, len(types))
 	for _, t := range types {
 		if t != "allArgs" && t != "builder" && t != "options" {
-			fmt.Fprintf(os.Stderr, "Error: invalid constructor type '%s'. Valid types: allArgs, builder, options\n", t)
+			fmt.Fprintf(os.Stderr, "Error: invalid constructor pattern '%s'. Valid patterns: all-args, builder, options\n", t)
 			os.Exit(1)
 		}
 		if _, seen := seenTypes[t]; seen {
-			fmt.Fprintf(os.Stderr, "Error: constructor type '%s' was specified more than once\n", t)
+			fmt.Fprintf(os.Stderr, "Error: constructor pattern '%s' was specified more than once\n", t)
 			os.Exit(1)
 		}
 		seenTypes[t] = struct{}{}

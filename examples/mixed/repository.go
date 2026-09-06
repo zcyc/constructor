@@ -2,7 +2,7 @@ package mixed
 
 import "time"
 
-//go:generate go run ../../. -type=Repository -constructorTypes=allArgs,builder,options -withGetter
+//go:generate go run ../../. -type=Repository -constructor-types=all-args,builder,options -getters
 
 // Repository represents a data repository
 // This example demonstrates:

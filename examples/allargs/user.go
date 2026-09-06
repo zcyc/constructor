@@ -2,7 +2,7 @@ package allargs
 
 import "time"
 
-//go:generate go run ../../. -type=User -constructorTypes=allArgs
+//go:generate go run ../../. -type=User -constructor-types=all-args
 
 // User represents a user in the system
 // This example demonstrates:

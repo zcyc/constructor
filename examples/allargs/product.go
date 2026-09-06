@@ -1,6 +1,6 @@
 package allargs
 
-//go:generate go run ../../. -type=Product -constructorTypes=allArgs -withGetter
+//go:generate go run ../../. -type=Product -constructor-types=all-args -getters
 
 // Product represents a product with getters
 // This example demonstrates:

@@ -2,7 +2,7 @@ package options
 
 import "time"
 
-//go:generate go run ../../. -type=AppConfig -constructorTypes=options -returnValue
+//go:generate go run ../../. -type=AppConfig -constructor-types=options -return-value
 
 // AppConfig represents application configuration
 // This example demonstrates:

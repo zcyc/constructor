@@ -2,7 +2,7 @@ package builder
 
 import "time"
 
-//go:generate go run ../../. -type=Service -constructorTypes=builder -setterPrefix=With -init=initialize
+//go:generate go run ../../. -type=Service -constructor-types=builder -setter-prefix=With -init=initialize
 
 // Service represents a service configuration
 // This example demonstrates:
