@@ -11,6 +11,7 @@ import (
 	"go/importer"
 	"go/parser"
 	"go/printer"
+	"go/scanner"
 	"go/token"
 	"go/types"
 	"io"
@@ -40,6 +41,22 @@ func hasGeneratedFileMarker(filename string, content []byte) bool {
 		}
 	}
 	return false
+}
+
+func hasGeneratedFileMarkerComment(filename string, content []byte) bool {
+	fset := token.NewFileSet()
+	file := fset.AddFile(filename, fset.Base(), len(content))
+	var scan scanner.Scanner
+	scan.Init(file, content, func(token.Position, string) {}, scanner.ScanComments)
+	for {
+		_, tok, literal := scan.Scan()
+		if tok == token.COMMENT && strings.TrimSpace(literal) == generatedFileMarker {
+			return true
+		}
+		if tok == token.EOF {
+			return false
+		}
+	}
 }
 
 // ParseStruct parses a Go source file and extracts struct information

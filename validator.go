@@ -133,7 +133,7 @@ func removeValidationCandidates(dir, keepPath string) error {
 			continue
 		}
 		content, err := os.ReadFile(filename)
-		if err != nil || !hasGeneratedFileMarker(filename, content) {
+		if err != nil || !hasGeneratedFileMarkerComment(filename, content) {
 			continue
 		}
 		if err := os.Remove(filename); err != nil {
