@@ -78,6 +78,22 @@ func TestValidateGeneratedDeclarationsAllowsMultipleInitFunctions(t *testing.T) 
 	}
 }
 
+func TestValidateGeneratedDeclarationsHonorsGeneratedBuildConstraints(t *testing.T) {
+	dir := t.TempDir()
+	sourceFile := filepath.Join(dir, "box_linux.go")
+	if err := os.WriteFile(sourceFile, []byte("package test\n\ntype Box struct{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "existing.go"), []byte("package test\n\ntype NewBox struct{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	generated := "//go:build linux\n\npackage test\n\nfunc NewBox() *Box { return &Box{} }\n"
+
+	if err := validateGeneratedDeclarations(sourceFile, filepath.Join(dir, "box_gen.go"), generated); err != nil {
+		t.Fatalf("excluded generated declarations were rejected: %v", err)
+	}
+}
+
 func TestValidateGeneratedPackage(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, content string) {

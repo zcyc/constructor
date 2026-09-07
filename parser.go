@@ -189,6 +189,25 @@ func buildConstraints(file *ast.File, filename string) string {
 	if filenameExpression := filenameBuildConstraint(filename); filenameExpression != nil {
 		expression = andConstraint(expression, filenameExpression)
 	}
+	return buildConstraintLine(expression)
+}
+
+func addFilenameBuildConstraint(line, filename string) string {
+	filenameExpression := filenameBuildConstraint(filename)
+	if filenameExpression == nil {
+		return line
+	}
+	if line == "" {
+		return buildConstraintLine(filenameExpression)
+	}
+	expression, err := constraint.Parse(line)
+	if err != nil {
+		return line
+	}
+	return buildConstraintLine(andConstraint(expression, filenameExpression))
+}
+
+func buildConstraintLine(expression constraint.Expr) string {
 	if expression == nil {
 		return ""
 	}

@@ -4,7 +4,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/build"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,16 +195,37 @@ func generatedForType(filename, typeName string) bool {
 	if err != nil || !hasGeneratedFileMarker(filename, content) {
 		return false
 	}
-	contentString := string(content)
-	constructorName := "func New" + typeName
-	builderName := "type " + typeName + "Builder"
-	optionName := "type " + typeName + "Option"
-	return strings.Contains(contentString, constructorName+"(") ||
-		strings.Contains(contentString, constructorName+"[") ||
-		strings.Contains(contentString, optionName+" ") ||
-		strings.Contains(contentString, optionName+"[") ||
-		strings.Contains(contentString, builderName+" ") ||
-		strings.Contains(contentString, builderName+"[")
+	file, err := parser.ParseFile(token.NewFileSet(), filename, content, 0)
+	if err != nil {
+		return false
+	}
+	constructorNames := map[string]struct{}{
+		"New" + typeName: {},
+	}
+	typeNames := map[string]struct{}{
+		typeName + "Builder": {},
+		typeName + "Option":  {},
+	}
+	for _, declaration := range file.Decls {
+		switch declaration := declaration.(type) {
+		case *ast.FuncDecl:
+			if declaration.Recv == nil {
+				if _, ok := constructorNames[declaration.Name.Name]; ok {
+					return true
+				}
+			}
+		case *ast.GenDecl:
+			for _, specification := range declaration.Specs {
+				typeSpec, ok := specification.(*ast.TypeSpec)
+				if ok {
+					if _, ok := typeNames[typeSpec.Name.Name]; ok {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 func sameFile(first, second string) bool {

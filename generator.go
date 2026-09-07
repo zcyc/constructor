@@ -44,8 +44,9 @@ func (g *Generator) Generate() (string, error) {
 
 	var buf bytes.Buffer
 
-	if g.info.BuildConstraints != "" {
-		buf.WriteString(g.info.BuildConstraints)
+	buildConstraints := addFilenameBuildConstraint(g.info.BuildConstraints, g.config.OutputFile)
+	if buildConstraints != "" {
+		buf.WriteString(buildConstraints)
 		buf.WriteString("\n\n")
 	}
 

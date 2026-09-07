@@ -9,6 +9,7 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,14 +147,21 @@ func removeValidationCandidates(dir, keepPath string) error {
 // methods from silently colliding with code already in the package.
 func validateGeneratedDeclarations(sourceFile, outputFile, generated string) error {
 	fset := token.NewFileSet()
-	generatedFile, err := parser.ParseFile(fset, outputFile, []byte(generated), 0)
+	generatedContent := []byte(generated)
+	generatedFile, err := parser.ParseFile(fset, outputFile, generatedContent, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("parse generated file: %w", err)
 	}
 
 	decls := map[string]string{}
-	if err := collectDeclarations(decls, generatedFile, outputFile); err != nil {
-		return err
+	matched, err := matchesCurrentBuildContext(outputFile, generatedContent)
+	if err != nil {
+		return fmt.Errorf("match generated build constraints: %w", err)
+	}
+	if matched {
+		if err := collectDeclarations(decls, generatedFile, outputFile); err != nil {
+			return err
+		}
 	}
 
 	dir := filepath.Dir(sourceFile)
@@ -171,6 +179,22 @@ func validateGeneratedDeclarations(sourceFile, outputFile, generated string) err
 		}
 	}
 	return nil
+}
+
+func matchesCurrentBuildContext(filename string, content []byte) (bool, error) {
+	filename, err := filepath.Abs(filename)
+	if err != nil {
+		return false, fmt.Errorf("resolve generated file: %w", err)
+	}
+	context := build.Default
+	context.OpenFile = func(path string) (io.ReadCloser, error) {
+		opened, err := filepath.Abs(path)
+		if err == nil && opened == filename {
+			return io.NopCloser(bytes.NewReader(content)), nil
+		}
+		return os.Open(path)
+	}
+	return context.MatchFile(filepath.Dir(filename), filepath.Base(filename))
 }
 
 func packageSourceFiles(dir, outputFile string) ([]string, error) {

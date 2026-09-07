@@ -181,6 +181,20 @@ func TestGeneratedCodeConvertsLegacyBuildConstraints(t *testing.T) {
 	}
 }
 
+func TestGeneratedCodePreservesOutputFilenameBuildConstraint(t *testing.T) {
+	info := &StructInfo{Name: "Config", PackageName: "test", Fields: []FieldInfo{{Name: "value", Type: "string"}}}
+	code, err := NewGenerator(&GeneratorConfig{
+		ConstructorTypes: []string{"allArgs"},
+		OutputFile:       "config_linux.go",
+	}, info).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(code, "//go:build linux\n\npackage test\n") {
+		t.Fatalf("generated code dropped output filename constraint:\n%s", code)
+	}
+}
+
 func TestFilenameBuildConstraintMatchesGoRules(t *testing.T) {
 	tests := map[string]string{
 		"foo_linux.go":       "linux",
