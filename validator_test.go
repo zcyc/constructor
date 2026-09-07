@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -101,5 +102,34 @@ func NewBox() *Box { return &Box{} }
 func NewBox() (Box, error) { return Box{}, nil }
 `); err == nil || !strings.Contains(err.Error(), "assignment mismatch") {
 		t.Fatalf("test API mismatch was not detected: %v", err)
+	}
+}
+
+func TestValidateGeneratedPackageCanRunConcurrently(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module example.com/test\n\ngo 1.24\n")
+	write("box.go", "package test\n\ntype Box struct{}\n")
+
+	var waitGroup sync.WaitGroup
+	errors := make(chan error, 2)
+	for range 2 {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			errors <- validateGeneratedPackage(filepath.Join(dir, "box.go"), filepath.Join(dir, "box_gen.go"), "package test\n\nfunc NewBox() *Box { return &Box{} }\n")
+		}()
+	}
+	waitGroup.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent validation failed: %v", err)
+		}
 	}
 }

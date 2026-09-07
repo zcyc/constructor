@@ -1,6 +1,6 @@
 # Constructor
 
-[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24.9-blue)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A powerful Go code generator that creates constructor code for structs with support for multiple design patterns.
@@ -17,6 +17,8 @@ A powerful Go code generator that creates constructor code for structs with supp
 - 🛠️ **Import Management**: Automatic import handling with the Go standard library
 
 ## Installation
+
+Requires Go 1.24.9 or newer. The module pins the toolchain to Go 1.24.9 for reproducible builds.
 
 ```bash
 go install github.com/zcyc/constructor@latest

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -10,12 +11,17 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const goCommandTimeout = 10 * time.Second
 
 // ParseStruct parses a Go source file and extracts struct information
 func ParseStruct(filename, structName string) (*StructInfo, error) {
@@ -255,13 +261,11 @@ func parseImports(specs []*ast.ImportSpec, dir string) []ImportInfo {
 }
 
 func resolveImportQualifier(dir, importPath string) string {
-	command := exec.Command("go", "list", "-f", "{{.Name}}", importPath)
-	command.Dir = dir
-	output, err := command.Output()
+	metadata, err := listGoPackage(dir, importPath, false)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(output))
+	return metadata.Name
 }
 
 func markDotImportsUsed(imports []ImportInfo, file *ast.File, target *ast.StructType, typeParams *ast.FieldList, fields []FieldInfo, fset *token.FileSet, dir string) {
@@ -302,7 +306,7 @@ func markDotImportsUsed(imports []ImportInfo, file *ast.File, target *ast.Struct
 	}
 
 	_, _ = (&types.Config{
-		Importer: importer.Default(),
+		Importer: moduleImporter(fset, dir),
 		Error:    func(error) {},
 	}).Check(file.Name.Name, fset, []*ast.File{&checkFile}, info)
 	for i := range imports {
@@ -318,21 +322,10 @@ func markDotImportsUsed(imports []ImportInfo, file *ast.File, target *ast.Struct
 }
 
 func exportedNamesForPackage(dir, importPath string) (map[string]struct{}, error) {
-	// ponytail: use a source-level fallback when go/types cannot resolve the
-	// package; switch to a module-aware typed loader if name-shadowing cases appear.
-	command := exec.Command("go", "list", "-json", importPath)
-	command.Dir = dir
-	output, err := command.Output()
+	// ponytail: use a source-level fallback only when module export data is
+	// unavailable; the typed importer handles valid module-aware packages.
+	metadata, err := listGoPackage(dir, importPath, false)
 	if err != nil {
-		return nil, err
-	}
-
-	var metadata struct {
-		Dir      string
-		GoFiles  []string
-		CgoFiles []string
-	}
-	if err := json.Unmarshal(output, &metadata); err != nil {
 		return nil, err
 	}
 	exported := make(map[string]struct{})
@@ -367,6 +360,58 @@ func exportedNamesForPackage(dir, importPath string) (map[string]struct{}, error
 		}
 	}
 	return exported, nil
+}
+
+type listedPackage struct {
+	Name     string
+	Dir      string
+	Export   string
+	GoFiles  []string
+	CgoFiles []string
+}
+
+func listGoPackage(dir, importPath string, export bool) (listedPackage, error) {
+	args := []string{"list", "-json"}
+	if export {
+		args = append(args, "-export")
+	}
+	args = append(args, importPath)
+	output, err := runGoCommand(dir, args...)
+	if err != nil {
+		return listedPackage{}, err
+	}
+
+	var metadata listedPackage
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		return listedPackage{}, err
+	}
+	return metadata, nil
+}
+
+func runGoCommand(dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), goCommandTimeout)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, "go", args...)
+	command.Dir = dir
+	output, err := command.Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("go command timed out: %w", ctx.Err())
+	}
+	return output, err
+}
+
+func moduleImporter(fset *token.FileSet, dir string) types.Importer {
+	return importer.ForCompiler(fset, "gc", func(importPath string) (io.ReadCloser, error) {
+		metadata, err := listGoPackage(dir, importPath, true)
+		if err != nil {
+			return nil, err
+		}
+		if metadata.Export == "" {
+			return nil, fmt.Errorf("package %q has no export data", importPath)
+		}
+		return os.Open(metadata.Export)
+	})
 }
 
 func dotImportReferencesPackage(info *types.Info, target *ast.StructType, typeParams *ast.FieldList, defaults []ast.Expr, importPath string, exported map[string]struct{}) bool {

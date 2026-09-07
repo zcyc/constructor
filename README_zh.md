@@ -1,6 +1,6 @@
 # Constructor
 
-[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24.9-blue)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 一个强大的 Go 代码生成器，可以为结构体创建构造函数代码，支持多种设计模式。
@@ -18,6 +18,8 @@
 - 🛠️ **导入管理**：使用 Go 标准库自动处理导入
 
 ## 安装
+
+需要 Go 1.24.9 或更高版本。模块固定使用 Go 1.24.9 工具链，以保证构建结果可复现。
 
 ```bash
 go install github.com/zcyc/constructor@latest

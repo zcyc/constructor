@@ -19,6 +19,7 @@ install:
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -f constructor
+	@rm -rf dist
 	@# Generated example sources are versioned and intentionally preserved.
 	@echo "✅ Clean complete"
 
