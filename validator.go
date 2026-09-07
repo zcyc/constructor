@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -73,8 +74,13 @@ func validateGeneratedPackage(sourceFile, outputFile, generated string) (returnE
 				return fmt.Errorf("temporarily move output file: %w", err)
 			}
 			defer func() {
-				if err := os.Rename(backupPath, outputPath); err != nil && returnErr == nil {
-					returnErr = fmt.Errorf("restore output file: %w", err)
+				if err := os.Rename(backupPath, outputPath); err != nil {
+					restoreErr := fmt.Errorf("restore output file: %w", err)
+					if returnErr == nil {
+						returnErr = restoreErr
+					} else {
+						returnErr = errors.Join(returnErr, restoreErr)
+					}
 				}
 			}()
 		} else if !os.IsNotExist(err) {
@@ -126,7 +132,7 @@ func removeValidationCandidates(dir, keepPath string) error {
 			continue
 		}
 		content, err := os.ReadFile(filename)
-		if err != nil || !bytes.Contains(content, []byte(generatedFileMarker)) {
+		if err != nil || !hasGeneratedFileMarker(filename, content) {
 			continue
 		}
 		if err := os.Remove(filename); err != nil {
@@ -215,7 +221,10 @@ func collectDeclarations(decls map[string]string, file *ast.File, filename strin
 	for _, declaration := range file.Decls {
 		switch declaration := declaration.(type) {
 		case *ast.FuncDecl:
-			key := "func:" + declaration.Name.Name
+			if declaration.Recv == nil && declaration.Name.Name == "init" {
+				continue
+			}
+			key := "package:" + declaration.Name.Name
 			if declaration.Recv != nil {
 				key = "method:" + receiverTypeName(declaration.Recv) + ":" + declaration.Name.Name
 			}
@@ -226,12 +235,18 @@ func collectDeclarations(decls map[string]string, file *ast.File, filename strin
 			for _, specification := range declaration.Specs {
 				switch specification := specification.(type) {
 				case *ast.TypeSpec:
-					if err := rememberDeclaration(decls, "type:"+specification.Name.Name, filename); err != nil {
+					if specification.Name.Name == "_" {
+						continue
+					}
+					if err := rememberDeclaration(decls, "package:"+specification.Name.Name, filename); err != nil {
 						return err
 					}
 				case *ast.ValueSpec:
 					for _, name := range specification.Names {
-						if err := rememberDeclaration(decls, declaration.Tok.String()+":"+name.Name, filename); err != nil {
+						if name.Name == "_" {
+							continue
+						}
+						if err := rememberDeclaration(decls, "package:"+name.Name, filename); err != nil {
 							return err
 						}
 					}

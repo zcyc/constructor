@@ -154,6 +154,10 @@ func (g *Generator) importsForGeneratedTypes() []ImportInfo {
 func (g *Generator) importForPath(importPath, defaultName string) ImportInfo {
 	for _, imp := range g.info.Imports {
 		if imp.Path == importPath && imp.Name != "_" {
+			if imp.Name == "." && !imp.Used {
+				imp.Name = defaultName
+				imp.Qualifier = ""
+			}
 			return g.avoidImportNameConflict(imp, defaultName)
 		}
 	}
@@ -208,6 +212,20 @@ func (g *Generator) validateImportNameConflicts() error {
 		}
 		if importQualifierUsed(fields, g.info.TypeParams, qualifier) {
 			return fmt.Errorf("import qualifier %q conflicts with a type parameter", qualifier)
+		}
+	}
+	if g.hasRequiredFields() {
+		for _, helper := range []struct {
+			path   string
+			member string
+		}{{"errors", "New"}, {"reflect", "ValueOf"}} {
+			for _, imp := range g.info.Imports {
+				if imp.Path == helper.path && imp.Name == "." && imp.Used {
+					if _, exists := g.typeParameterNames()[helper.member]; exists {
+						return fmt.Errorf("dot import %q conflicts with type parameter %q", helper.path, helper.member)
+					}
+				}
+			}
 		}
 	}
 	return nil

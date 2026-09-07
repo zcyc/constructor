@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,8 +128,42 @@ func TestParseStructResolvesImportPackageName(t *testing.T) {
 
 func TestGeneratedCodePreservesBuildConstraints(t *testing.T) {
 	tmpDir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	testFile := filepath.Join(tmpDir, "test_linux.go")
-	content := "//go:build linux\n\npackage test\n\ntype Config struct { value string }\n"
+	content := "package test\n\ntype Config struct { value string }\n"
+	write("go.mod", "module example.com/test\n\ngo 1.24\n")
+	write("common.go", "package test\n")
+	write("test_linux.go", content)
+
+	info, err := ParseStruct(testFile, "Config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(code, "//go:build linux\n\npackage test\n") {
+		t.Fatalf("generated code dropped build constraint:\n%s", code)
+	}
+	write("config_gen.go", code)
+	command := exec.Command("go", "test", "-c", "-o", filepath.Join(tmpDir, "test.exe"), ".")
+	command.Dir = tmpDir
+	command.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated file was not excluded with its source on windows: %v\n%s", err, output)
+	}
+}
+
+func TestGeneratedCodeConvertsLegacyBuildConstraints(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := "// +build linux\n// +build amd64\n\npackage test\n\ntype Config struct { value string }\n"
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +176,32 @@ func TestGeneratedCodePreservesBuildConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(code, "//go:build linux\n\npackage test\n") {
-		t.Fatalf("generated code dropped build constraint:\n%s", code)
+	if !strings.HasPrefix(code, "//go:build linux && amd64\n\npackage test\n") {
+		t.Fatalf("generated code did not combine legacy build constraints:\n%s", code)
+	}
+}
+
+func TestFilenameBuildConstraintMatchesGoRules(t *testing.T) {
+	tests := map[string]string{
+		"foo_linux.go":       "linux",
+		"foo_linux_amd64.go": "linux && amd64",
+		"linux_amd64.go":     "amd64",
+		"foo.bar_linux.go":   "",
+		"foo_custom.go":      "",
+	}
+	for filename, want := range tests {
+		t.Run(filename, func(t *testing.T) {
+			expression := filenameBuildConstraint(filename)
+			if expression == nil {
+				if want != "" {
+					t.Fatalf("constraint = nil, want %q", want)
+				}
+				return
+			}
+			if got := expression.String(); got != want {
+				t.Fatalf("constraint = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

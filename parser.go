@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build/constraint"
@@ -23,6 +24,23 @@ import (
 )
 
 const goCommandTimeout = 10 * time.Second
+
+var errStructNotFound = errors.New("struct not found")
+
+func hasGeneratedFileMarker(filename string, content []byte) bool {
+	file, err := parser.ParseFile(token.NewFileSet(), filename, content, parser.ParseComments)
+	if err != nil {
+		return false
+	}
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			if strings.TrimSpace(comment.Text) == generatedFileMarker {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // ParseStruct parses a Go source file and extracts struct information
 func ParseStruct(filename, structName string) (*StructInfo, error) {
@@ -60,7 +78,7 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 				PackageName:      node.Name.Name,
 				Fields:           []FieldInfo{},
 				Imports:          parseImports(node.Imports, filepath.Dir(filename)),
-				BuildConstraints: buildConstraints(node),
+				BuildConstraints: buildConstraints(node, filename),
 				TypeParams:       typeParamDecl(typeSpec.TypeParams),
 				TypeArgs:         typeParamArgs(typeSpec.TypeParams),
 			}
@@ -134,7 +152,7 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	}
 
 	if structInfo == nil {
-		return nil, fmt.Errorf("struct %s not found in file %s", structName, filename)
+		return nil, fmt.Errorf("%w: struct %s not found in file %s", errStructNotFound, structName, filename)
 	}
 	if parseErr != nil {
 		return nil, parseErr
@@ -144,20 +162,94 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	return structInfo, nil
 }
 
-func buildConstraints(file *ast.File) string {
-	lines := make([]string, 0)
+func buildConstraints(file *ast.File, filename string) string {
+	var modern, legacy constraint.Expr
 	for _, group := range file.Comments {
 		if group.Pos() >= file.Package {
 			break
 		}
 		for _, comment := range group.List {
 			line := strings.TrimSpace(comment.Text)
-			if constraint.IsGoBuild(line) || constraint.IsPlusBuild(line) {
-				lines = append(lines, line)
+			parsed, err := constraint.Parse(line)
+			if err != nil {
+				continue
+			}
+			if constraint.IsGoBuild(line) {
+				modern = andConstraint(modern, parsed)
+			} else if constraint.IsPlusBuild(line) {
+				legacy = andConstraint(legacy, parsed)
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+
+	expression := modern
+	if expression == nil {
+		expression = legacy
+	}
+	if filenameExpression := filenameBuildConstraint(filename); filenameExpression != nil {
+		expression = andConstraint(expression, filenameExpression)
+	}
+	if expression == nil {
+		return ""
+	}
+	return "//go:build " + expression.String()
+}
+
+func andConstraint(left, right constraint.Expr) constraint.Expr {
+	if left == nil {
+		return right
+	}
+	return &constraint.AndExpr{X: left, Y: right}
+}
+
+func filenameBuildConstraint(filename string) constraint.Expr {
+	name, _, _ := strings.Cut(filepath.Base(filename), ".")
+	underscore := strings.IndexByte(name, '_')
+	if underscore < 0 {
+		return nil
+	}
+	name = strings.TrimSuffix(name[underscore+1:], "_test")
+	parts := strings.Split(name, "_")
+	if len(parts) < 2 {
+		if len(parts) == 1 && (isKnownGOOS(parts[0]) || isKnownGOARCH(parts[0])) {
+			return &constraint.TagExpr{Tag: parts[0]}
+		}
+		return nil
+	}
+
+	last := parts[len(parts)-1]
+	if isKnownGOOS(last) {
+		return &constraint.TagExpr{Tag: last}
+	}
+	if isKnownGOARCH(last) {
+		if previous := parts[len(parts)-2]; isKnownGOOS(previous) {
+			return &constraint.AndExpr{
+				X: &constraint.TagExpr{Tag: previous},
+				Y: &constraint.TagExpr{Tag: last},
+			}
+		}
+		return &constraint.TagExpr{Tag: last}
+	}
+	return nil
+}
+
+// ponytail: keep the Go 1.24 filename suffix list local; update it when Go adds platforms.
+func isKnownGOOS(value string) bool {
+	switch value {
+	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos":
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownGOARCH(value string) bool {
+	switch value {
+	case "386", "amd64", "amd64p32", "arm", "arm64", "arm64be", "armbe", "loong64", "mips", "mips64", "mips64le", "mips64p32", "mips64p32le", "mipsle", "ppc", "ppc64", "ppc64le", "riscv", "riscv64", "s390", "s390x", "sparc", "sparc64", "wasm":
+		return true
+	default:
+		return false
+	}
 }
 
 func fieldNameForError(field *ast.Field) string {

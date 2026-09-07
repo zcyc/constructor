@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"go/build"
@@ -188,7 +189,7 @@ func defaultOutputFile(sourceFile, typeName string) string {
 
 func generatedForType(filename, typeName string) bool {
 	content, err := os.ReadFile(filename)
-	if err != nil || !strings.Contains(string(content), generatedFileMarker) {
+	if err != nil || !hasGeneratedFileMarker(filename, content) {
 		return false
 	}
 	contentString := string(content)
@@ -286,6 +287,9 @@ func findSourceFile(typeName, inputFile string) (string, error) {
 		_, parseErr := ParseStruct(file, typeName)
 		if parseErr == nil {
 			return file, nil
+		}
+		if !errors.Is(parseErr, errStructNotFound) {
+			return "", fmt.Errorf("failed to parse %s: %w", file, parseErr)
 		}
 	}
 

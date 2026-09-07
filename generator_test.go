@@ -175,6 +175,58 @@ func TestGeneratedImportsAvoidExistingAliases(t *testing.T) {
 	}
 }
 
+func TestGeneratedRequiredValidationAvoidsDotImportTypeParameter(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		TypeParams:  "[New any]",
+		TypeArgs:    "[New]",
+		Imports:     []ImportInfo{{Name: ".", Path: "errors"}},
+		Fields:      []FieldInfo{{Name: "name", Type: "string", Required: true}},
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, `errors "errors"`) || !strings.Contains(code, "errors.New") {
+		t.Fatalf("required validation did not avoid dot-import collision:\n%s", code)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "config.go", []byte(`package test
+
+import . "errors"
+
+var _ = New
+
+type Config[New any] struct { name string }
+`), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "config_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated code does not type-check around dot import: %v\n%s", err, code)
+	}
+}
+
+func TestGeneratedRequiredValidationRejectsUsedDotImportCollision(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		TypeParams:  "[ValueOf any]",
+		TypeArgs:    "[ValueOf]",
+		Imports:     []ImportInfo{{Name: ".", Path: "reflect", Used: true}},
+		Fields:      []FieldInfo{{Name: "value", Type: "Value", Required: true}},
+	}
+	if _, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate(); err == nil || !strings.Contains(err.Error(), `dot import "reflect" conflicts with type parameter "ValueOf"`) {
+		t.Fatalf("expected used dot-import collision, got %v", err)
+	}
+}
+
 func TestGeneratorRejectsDefaultImportTypeParameterCollision(t *testing.T) {
 	info := &StructInfo{
 		Name:        "Config",
