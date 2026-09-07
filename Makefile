@@ -1,4 +1,4 @@
-.PHONY: all build install clean test examples verify help generate
+.PHONY: all build install clean test examples verify help generate fmt vet version release
 
 # 默认目标
 all: build
@@ -19,7 +19,7 @@ install:
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -f constructor
-	@rm -f examples/*_gen.go
+	@# Generated example sources are versioned and intentionally preserved.
 	@echo "✅ Clean complete"
 
 # 运行测试
@@ -43,8 +43,9 @@ examples: generate
 # 验证项目
 verify: build generate
 	@echo "Running verification..."
-	@go test ./...
+	@go test -race ./...
 	@go vet ./...
+	@go build ./...
 	@echo "✅ Verification passed"
 
 # 格式化代码
@@ -54,10 +55,10 @@ fmt:
 	@echo "✅ Code formatted"
 
 # 代码检查
-lint:
-	@echo "Running linters..."
+vet:
+	@echo "Running go vet..."
 	@go vet ./...
-	@echo "✅ Lint checks passed"
+	@echo "✅ Vet checks passed"
 
 # 显示版本
 version:
@@ -83,9 +84,9 @@ help:
 	@echo "  test       - Run tests"
 	@echo "  generate   - Generate example constructors"
 	@echo "  examples   - Build examples"
-	@echo "  verify     - Run tests and vet"
+	@echo "  verify     - Run race tests, vet, and build"
 	@echo "  fmt        - Format code with gofmt"
-	@echo "  lint       - Run code linters"
+	@echo "  vet        - Run go vet"
 	@echo "  version    - Show version"
 	@echo "  release    - Create release package"
 	@echo "  help       - Show this help message"

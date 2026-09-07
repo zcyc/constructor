@@ -53,6 +53,14 @@ func TestValidateGeneratedPackage(t *testing.T) {
 
 type Box struct { Name string }
 `)
+	write("box_test.go", `package test
+
+import "testing"
+
+func TestGeneratedConstructor(t *testing.T) {
+	_ = NewBox()
+}
+`)
 
 	sourceFile := filepath.Join(dir, "box.go")
 	outputFile := filepath.Join(dir, "box_gen.go")
@@ -60,7 +68,7 @@ type Box struct { Name string }
 
 func NewBox() *Box { return &Box{} }
 `); err != nil {
-		t.Fatalf("valid package rejected: %v", err)
+		t.Fatalf("valid package and tests rejected: %v", err)
 	}
 
 	if err := validateGeneratedPackage(sourceFile, outputFile, `package test
@@ -78,6 +86,20 @@ func NewBox() *Box { return &Box{Missing: true} }
 
 func NewBox() *Box { return &Box{} }
 `); err != nil {
-		t.Fatalf("existing output was not replaced by overlay: %v", err)
+		t.Fatalf("existing output was not replaced by candidate: %v", err)
+	}
+	restored, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(restored), "Missing: true") {
+		t.Fatalf("existing output was not restored after validation: %q", restored)
+	}
+
+	if err := validateGeneratedPackage(sourceFile, outputFile, `package test
+
+func NewBox() (Box, error) { return Box{}, nil }
+`); err == nil || !strings.Contains(err.Error(), "assignment mismatch") {
+		t.Fatalf("test API mismatch was not detected: %v", err)
 	}
 }

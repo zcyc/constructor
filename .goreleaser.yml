@@ -30,8 +30,6 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
 
 archives:
   - id: constructor
@@ -49,7 +47,6 @@ archives:
     files:
       - README.md
       - LICENSE
-      - QUICKSTART.md
 
 checksum:
   name_template: 'checksums.txt'

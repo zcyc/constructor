@@ -127,7 +127,7 @@ func (g *Generator) importsForGeneratedTypes() []ImportInfo {
 		if imp.Name == "_" {
 			continue
 		}
-		if imp.Name == "." || importQualifierUsed(fields, g.info.TypeParams, importQualifier(imp)) {
+		if (imp.Name == "." && imp.Used) || (imp.Name != "." && importQualifierUsed(fields, g.info.TypeParams, importQualifier(imp))) {
 			addImport(imp)
 		}
 	}
@@ -158,6 +158,9 @@ func (g *Generator) generatedSelector(importPath, defaultName, member string) st
 func importQualifier(imp ImportInfo) string {
 	if imp.Name != "" {
 		return imp.Name
+	}
+	if imp.Qualifier != "" {
+		return imp.Qualifier
 	}
 
 	qualifier := path.Base(imp.Path)

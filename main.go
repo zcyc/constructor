@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const version = "1.0.0"
+var version = "1.0.0"
 
 func main() {
 	// Define flags
@@ -157,7 +157,7 @@ func main() {
 	}
 
 	// Write to file
-	if err := os.WriteFile(output, []byte(code), 0644); err != nil {
+	if err := writeGeneratedFile(output, code); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
 		os.Exit(1)
 	}
@@ -168,7 +168,49 @@ func main() {
 func sameFile(first, second string) bool {
 	first, firstErr := filepath.Abs(first)
 	second, secondErr := filepath.Abs(second)
-	return firstErr == nil && secondErr == nil && filepath.Clean(first) == filepath.Clean(second)
+	if firstErr != nil || secondErr != nil {
+		return false
+	}
+	if filepath.Clean(first) == filepath.Clean(second) {
+		return true
+	}
+
+	firstInfo, firstErr := os.Stat(first)
+	secondInfo, secondErr := os.Stat(second)
+	return firstErr == nil && secondErr == nil && os.SameFile(firstInfo, secondInfo)
+}
+
+func writeGeneratedFile(filename, code string) error {
+	dir := filepath.Dir(filename)
+	mode := os.FileMode(0644)
+	if info, err := os.Stat(filename); err == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect existing output: %w", err)
+	}
+
+	temporary, err := os.CreateTemp(dir, "."+filepath.Base(filename)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary output: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set temporary output permissions: %w", err)
+	}
+	if _, err := temporary.WriteString(code); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write temporary output: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary output: %w", err)
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return fmt.Errorf("replace output: %w", err)
+	}
+	return nil
 }
 
 // findSourceFile searches for a Go file containing the struct definition

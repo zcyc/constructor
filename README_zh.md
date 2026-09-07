@@ -1,6 +1,6 @@
 # Constructor
 
-[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.18-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24-blue)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 一个强大的 Go 代码生成器，可以为结构体创建构造函数代码，支持多种设计模式。

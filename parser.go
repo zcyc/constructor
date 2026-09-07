@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"go/types"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -22,105 +27,103 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 
 	var structInfo *StructInfo
 	var parseErr error
+	var structType *ast.StructType
+	var typeParams *ast.FieldList
 
-	ast.Inspect(node, func(n ast.Node) bool {
-		// Look for type declarations
-		typeSpec, ok := n.(*ast.TypeSpec)
-		if !ok {
-			return true
+	// Only inspect top-level type declarations. A local type inside a function
+	// cannot be referenced by the generated top-level declarations.
+	for _, declaration := range node.Decls {
+		genDecl, ok := declaration.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
 		}
-
-		// Check if it's the struct we're looking for
-		if typeSpec.Name.Name != structName {
-			return true
-		}
-
-		// Check if it's a struct type
-		structType, ok := typeSpec.Type.(*ast.StructType)
-		if !ok {
-			return true
-		}
-
-		// Extract struct information
-		structInfo = &StructInfo{
-			Name:        structName,
-			PackageName: node.Name.Name,
-			Fields:      []FieldInfo{},
-			Imports:     parseImports(node.Imports),
-			TypeParams:  typeParamDecl(typeSpec.TypeParams),
-			TypeArgs:    typeParamArgs(typeSpec.TypeParams),
-		}
-
-		// Parse each field
-		for _, field := range structType.Fields.List {
-			fieldType := exprToString(field.Type)
-
-			// Get tag if exists
-			var tag string
-			if field.Tag != nil {
-				tag = field.Tag.Value
-			}
-
-			// Parse field skip options
-			skip, skipGetter, skipSetter := parseFieldSkipTags(tag)
-			defaultValue, required, err := parseConstructorFieldOptions(tag)
-			if err != nil {
-				parseErr = fmt.Errorf("invalid constructor options for field %s: %w", fieldNameForError(field), err)
-				return false
-			}
-			if (skip || skipSetter) && (defaultValue != "" || required) {
-				parseErr = fmt.Errorf("field %s cannot combine constructor default/required with skip or setter:false", fieldNameForError(field))
-				return false
-			}
-			if defaultValue != "" {
-				if _, err := parser.ParseExpr(defaultValue); err != nil {
-					parseErr = fmt.Errorf("invalid default for field %s: %w", fieldNameForError(field), err)
-					return false
-				}
-			}
-
-			// Handle embedded fields (no name)
-			if len(field.Names) == 0 {
-				fieldName := embeddedFieldName(field.Type)
-				if fieldName == "" {
-					continue
-				}
-				structInfo.Fields = append(structInfo.Fields, FieldInfo{
-					Name:       fieldName,
-					Type:       fieldType,
-					Tag:        tag,
-					Exported:   ast.IsExported(fieldName),
-					Skip:       skip,
-					SkipGetter: skipGetter,
-					SkipSetter: skipSetter,
-					Default:    defaultValue,
-					Required:   required,
-				})
+		for _, specification := range genDecl.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
 				continue
 			}
+			structType, ok = typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			typeParams = typeSpec.TypeParams
 
-			// Regular fields
-			for _, name := range field.Names {
-				if name.Name == "_" {
+			structInfo = &StructInfo{
+				Name:        structName,
+				PackageName: node.Name.Name,
+				Fields:      []FieldInfo{},
+				Imports:     parseImports(node.Imports, filepath.Dir(filename)),
+				TypeParams:  typeParamDecl(typeSpec.TypeParams),
+				TypeArgs:    typeParamArgs(typeSpec.TypeParams),
+			}
+
+			for _, field := range structType.Fields.List {
+				fieldType := exprToString(field.Type)
+
+				var tag string
+				if field.Tag != nil {
+					tag = field.Tag.Value
+				}
+
+				skip, skipGetter, skipSetter := parseFieldSkipTags(tag)
+				defaultValue, required, err := parseConstructorFieldOptions(tag)
+				if err != nil {
+					parseErr = fmt.Errorf("invalid constructor options for field %s: %w", fieldNameForError(field), err)
+					break
+				}
+				if (skip || skipSetter) && (defaultValue != "" || required) {
+					parseErr = fmt.Errorf("field %s cannot combine constructor default/required with skip or setter:false", fieldNameForError(field))
+					break
+				}
+				if defaultValue != "" {
+					if _, err := parser.ParseExpr(defaultValue); err != nil {
+						parseErr = fmt.Errorf("invalid default for field %s: %w", fieldNameForError(field), err)
+						break
+					}
+				}
+
+				if len(field.Names) == 0 {
+					fieldName := embeddedFieldName(field.Type)
+					if fieldName == "" {
+						continue
+					}
+					structInfo.Fields = append(structInfo.Fields, FieldInfo{
+						Name:       fieldName,
+						Type:       fieldType,
+						Tag:        tag,
+						Exported:   ast.IsExported(fieldName),
+						Skip:       skip,
+						SkipGetter: skipGetter,
+						SkipSetter: skipSetter,
+						Default:    defaultValue,
+						Required:   required,
+					})
 					continue
 				}
-				exported := ast.IsExported(name.Name)
-				structInfo.Fields = append(structInfo.Fields, FieldInfo{
-					Name:       name.Name,
-					Type:       fieldType,
-					Tag:        tag,
-					Exported:   exported,
-					Skip:       skip,
-					SkipGetter: skipGetter,
-					SkipSetter: skipSetter,
-					Default:    defaultValue,
-					Required:   required,
-				})
-			}
-		}
 
-		return false // Found the struct, stop searching
-	})
+				for _, name := range field.Names {
+					if name.Name == "_" {
+						continue
+					}
+					structInfo.Fields = append(structInfo.Fields, FieldInfo{
+						Name:       name.Name,
+						Type:       fieldType,
+						Tag:        tag,
+						Exported:   ast.IsExported(name.Name),
+						Skip:       skip,
+						SkipGetter: skipGetter,
+						SkipSetter: skipSetter,
+						Default:    defaultValue,
+						Required:   required,
+					})
+				}
+			}
+			break
+		}
+		if structInfo != nil {
+			break
+		}
+	}
 
 	if structInfo == nil {
 		return nil, fmt.Errorf("struct %s not found in file %s", structName, filename)
@@ -128,6 +131,7 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	if parseErr != nil {
 		return nil, parseErr
 	}
+	markDotImportsUsed(structInfo.Imports, node, structType, typeParams, structInfo.Fields, fset, filepath.Dir(filename))
 
 	return structInfo, nil
 }
@@ -229,7 +233,7 @@ func typeParamDecl(params *ast.FieldList) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-func parseImports(specs []*ast.ImportSpec) []ImportInfo {
+func parseImports(specs []*ast.ImportSpec, dir string) []ImportInfo {
 	imports := make([]ImportInfo, 0, len(specs))
 	for _, spec := range specs {
 		path, err := strconv.Unquote(spec.Path.Value)
@@ -241,9 +245,165 @@ func parseImports(specs []*ast.ImportSpec) []ImportInfo {
 		if spec.Name != nil {
 			name = spec.Name.Name
 		}
-		imports = append(imports, ImportInfo{Name: name, Path: path})
+		imp := ImportInfo{Name: name, Path: path}
+		if name == "" {
+			imp.Qualifier = resolveImportQualifier(dir, path)
+		}
+		imports = append(imports, imp)
 	}
 	return imports
+}
+
+func resolveImportQualifier(dir, importPath string) string {
+	command := exec.Command("go", "list", "-f", "{{.Name}}", importPath)
+	command.Dir = dir
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func markDotImportsUsed(imports []ImportInfo, file *ast.File, target *ast.StructType, typeParams *ast.FieldList, fields []FieldInfo, fset *token.FileSet, dir string) {
+	if target == nil {
+		return
+	}
+
+	dotImportPaths := make(map[string]struct{})
+	for _, imp := range imports {
+		if imp.Name == "." {
+			dotImportPaths[imp.Path] = struct{}{}
+		}
+	}
+	if len(dotImportPaths) == 0 {
+		return
+	}
+
+	info := &types.Info{Uses: make(map[*ast.Ident]types.Object)}
+	checkFile := *file
+	checkFile.Decls = append([]ast.Decl(nil), file.Decls...)
+	defaultExpressions := make([]ast.Expr, 0)
+	for _, field := range fields {
+		if field.Default == "" {
+			continue
+		}
+		expression, err := parser.ParseExpr(field.Default)
+		if err != nil {
+			continue
+		}
+		defaultExpressions = append(defaultExpressions, expression)
+		checkFile.Decls = append(checkFile.Decls, &ast.GenDecl{
+			Tok: token.VAR,
+			Specs: []ast.Spec{&ast.ValueSpec{
+				Names:  []*ast.Ident{ast.NewIdent("_")},
+				Values: []ast.Expr{expression},
+			}},
+		})
+	}
+
+	_, _ = (&types.Config{
+		Importer: importer.Default(),
+		Error:    func(error) {},
+	}).Check(file.Name.Name, fset, []*ast.File{&checkFile}, info)
+	for i := range imports {
+		if imports[i].Name != "." {
+			continue
+		}
+		exported, err := exportedNamesForPackage(dir, imports[i].Path)
+		if err != nil {
+			continue
+		}
+		imports[i].Used = dotImportReferencesPackage(info, target, typeParams, defaultExpressions, imports[i].Path, exported)
+	}
+}
+
+func exportedNamesForPackage(dir, importPath string) (map[string]struct{}, error) {
+	// ponytail: use a source-level fallback when go/types cannot resolve the
+	// package; switch to a module-aware typed loader if name-shadowing cases appear.
+	command := exec.Command("go", "list", "-json", importPath)
+	command.Dir = dir
+	output, err := command.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var metadata struct {
+		Dir      string
+		GoFiles  []string
+		CgoFiles []string
+	}
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		return nil, err
+	}
+	exported := make(map[string]struct{})
+	files := append(metadata.GoFiles, metadata.CgoFiles...)
+	for _, filename := range files {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(metadata.Dir, filename), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, declaration := range file.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.FuncDecl:
+				if declaration.Recv == nil && ast.IsExported(declaration.Name.Name) {
+					exported[declaration.Name.Name] = struct{}{}
+				}
+			case *ast.GenDecl:
+				for _, specification := range declaration.Specs {
+					switch specification := specification.(type) {
+					case *ast.TypeSpec:
+						if ast.IsExported(specification.Name.Name) {
+							exported[specification.Name.Name] = struct{}{}
+						}
+					case *ast.ValueSpec:
+						for _, name := range specification.Names {
+							if ast.IsExported(name.Name) {
+								exported[name.Name] = struct{}{}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return exported, nil
+}
+
+func dotImportReferencesPackage(info *types.Info, target *ast.StructType, typeParams *ast.FieldList, defaults []ast.Expr, importPath string, exported map[string]struct{}) bool {
+	usesPackage := func(node ast.Node) bool {
+		used := false
+		ast.Inspect(node, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			object := info.Uses[ident]
+			returnValue := false
+			if object != nil {
+				returnValue = object.Pkg() != nil && object.Pkg().Path() == importPath
+			} else {
+				_, returnValue = exported[ident.Name]
+			}
+			if returnValue {
+				used = true
+			}
+			return !used
+		})
+		return used
+	}
+
+	if usesPackage(target) {
+		return true
+	}
+	if typeParams != nil && usesPackage(typeParams) {
+		return true
+	}
+	for _, expression := range defaults {
+		if usesPackage(expression) {
+			return true
+		}
+	}
+	return false
 }
 
 func embeddedFieldName(expr ast.Expr) string {

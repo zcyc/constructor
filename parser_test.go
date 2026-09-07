@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +70,108 @@ type OtherStruct struct {
 	_, err := ParseStruct(testFile, "NonExistent")
 	if err == nil {
 		t.Error("Expected error when struct not found")
+	}
+}
+
+func TestParseStructIgnoresLocalTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := `package test
+
+func define() {
+	type Target struct { value string }
+	_ = Target{}
+}
+`
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseStruct(testFile, "Target"); err == nil {
+		t.Fatal("local types must not be selected as generation targets")
+	}
+}
+
+func TestParseStructResolvesImportPackageName(t *testing.T) {
+	tmpDir := t.TempDir()
+	externalDir := filepath.Join(tmpDir, "external")
+	if err := os.Mkdir(externalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(filename, content string) {
+		t.Helper()
+		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(tmpDir, "go.mod"), "module example.com/test\n\ngo 1.24\n")
+	write(filepath.Join(externalDir, "external.go"), "package actual\n\ntype Value struct{}\n")
+	testFile := filepath.Join(tmpDir, "test.go")
+	write(testFile, "package test\n\nimport \"example.com/test/external\"\n\ntype Box struct { value actual.Value }\n")
+
+	info, err := ParseStruct(testFile, "Box")
+	if err != nil {
+		t.Fatalf("ParseStruct failed: %v", err)
+	}
+	if len(info.Imports) != 1 || info.Imports[0].Qualifier != "actual" {
+		t.Fatalf("resolved imports = %#v, want qualifier actual", info.Imports)
+	}
+
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, "actual.Value") || !strings.Contains(code, `"example.com/test/external"`) {
+		t.Fatalf("generated code did not preserve the package name:\n%s", code)
+	}
+}
+
+func TestParseStructTracksDotImportsUsedByGeneratedCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	externalDir := filepath.Join(tmpDir, "external")
+	if err := os.Mkdir(externalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(filename, content string) {
+		t.Helper()
+		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(tmpDir, "go.mod"), "module example.com/test\n\ngo 1.24\n")
+	write(filepath.Join(externalDir, "external.go"), "package actual\n\ntype Value struct{}\n")
+	testFile := filepath.Join(tmpDir, "test.go")
+	write(testFile, "package test\n\nimport . \"example.com/test/external\"\n\ntype Box struct { value Value }\n")
+
+	info, err := ParseStruct(testFile, "Box")
+	if err != nil {
+		t.Fatalf("ParseStruct failed: %v", err)
+	}
+	if len(info.Imports) != 1 || !info.Imports[0].Used {
+		t.Fatalf("dot import usage = %#v, want used", info.Imports)
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, `import . "example.com/test/external"`) {
+		t.Fatalf("generated code omitted used dot import:\n%s", code)
+	}
+
+	unusedFile := filepath.Join(tmpDir, "unused.go")
+	write(unusedFile, "package test\n\nimport . \"example.com/test/external\"\n\nvar _ = Value{}\n\ntype Other struct { value int }\n")
+	info, err = ParseStruct(unusedFile, "Other")
+	if err != nil {
+		t.Fatalf("ParseStruct for unused dot import failed: %v", err)
+	}
+	if len(info.Imports) != 1 || info.Imports[0].Used {
+		t.Fatalf("unused dot import usage = %#v, want unused", info.Imports)
+	}
+	code, err = NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate for unused dot import failed: %v", err)
+	}
+	if strings.Contains(code, "example.com/test/external") {
+		t.Fatalf("generated code retained unused dot import:\n%s", code)
 	}
 }
 

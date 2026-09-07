@@ -12,8 +12,10 @@ type StructInfo struct {
 
 // ImportInfo describes an import declaration from the source file.
 type ImportInfo struct {
-	Name string
-	Path string
+	Name      string
+	Path      string
+	Qualifier string // Package identifier used by source code for an unaliased import.
+	Used      bool   // Whether a dot import is referenced by generated code.
 }
 
 // FieldInfo represents a single field in a struct
