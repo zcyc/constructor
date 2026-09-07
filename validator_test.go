@@ -87,7 +87,7 @@ func TestValidateGeneratedDeclarationsHonorsGeneratedBuildConstraints(t *testing
 	if err := os.WriteFile(filepath.Join(dir, "existing.go"), []byte("package test\n\ntype NewBox struct{}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	generated := "//go:build linux\n\npackage test\n\nfunc NewBox() *Box { return &Box{} }\n"
+	generated := "//go:build ignore && !ignore\n\npackage test\n\nfunc NewBox() *Box { return &Box{} }\n"
 
 	if err := validateGeneratedDeclarations(sourceFile, filepath.Join(dir, "box_gen.go"), generated); err != nil {
 		t.Fatalf("excluded generated declarations were rejected: %v", err)
