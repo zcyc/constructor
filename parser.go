@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/build/constraint"
 	"go/importer"
 	"go/parser"
 	"go/printer"
@@ -55,12 +56,13 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 			typeParams = typeSpec.TypeParams
 
 			structInfo = &StructInfo{
-				Name:        structName,
-				PackageName: node.Name.Name,
-				Fields:      []FieldInfo{},
-				Imports:     parseImports(node.Imports, filepath.Dir(filename)),
-				TypeParams:  typeParamDecl(typeSpec.TypeParams),
-				TypeArgs:    typeParamArgs(typeSpec.TypeParams),
+				Name:             structName,
+				PackageName:      node.Name.Name,
+				Fields:           []FieldInfo{},
+				Imports:          parseImports(node.Imports, filepath.Dir(filename)),
+				BuildConstraints: buildConstraints(node),
+				TypeParams:       typeParamDecl(typeSpec.TypeParams),
+				TypeArgs:         typeParamArgs(typeSpec.TypeParams),
 			}
 
 			for _, field := range structType.Fields.List {
@@ -140,6 +142,22 @@ func ParseStruct(filename, structName string) (*StructInfo, error) {
 	markDotImportsUsed(structInfo.Imports, node, structType, typeParams, structInfo.Fields, fset, filepath.Dir(filename))
 
 	return structInfo, nil
+}
+
+func buildConstraints(file *ast.File) string {
+	lines := make([]string, 0)
+	for _, group := range file.Comments {
+		if group.Pos() >= file.Package {
+			break
+		}
+		for _, comment := range group.List {
+			line := strings.TrimSpace(comment.Text)
+			if constraint.IsGoBuild(line) || constraint.IsPlusBuild(line) {
+				lines = append(lines, line)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func fieldNameForError(field *ast.Field) string {
@@ -522,7 +540,7 @@ func parseFieldSkipTags(tag string) (bool, bool, bool) {
 	skipGetter := false
 	skipSetter := false
 
-	tagValue := reflect.StructTag(tag).Get("constructor")
+	tagValue := strings.TrimSpace(reflect.StructTag(tag).Get("constructor"))
 	if tagValue == "-" {
 		skip = true
 	} else {

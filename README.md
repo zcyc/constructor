@@ -226,6 +226,10 @@ constructor [flags]
 | `-validate-only`    | Validate the existing output file           | `false`         | `-validate-only`                            |
 | `-version`          | Show version information                    | -               | `-version`                                  |
 
+When the default output path already exists, the generator reuses it only if it
+contains constructors for the same type; otherwise it chooses the next free
+name such as `<type>2_gen.go`.
+
 ## Advanced Usage
 
 ### Initialization Function
@@ -248,6 +252,10 @@ If initialization can fail, make it return `error` and enable `-init-returns-err
 
 ```go
 //go:generate constructor -type=Service -constructor-types=all-args -init=initialize -init-returns-error
+type Service struct {
+    db     *sql.DB
+    logger Logger
+}
 
 func (s *Service) initialize() error {
     return nil
@@ -257,13 +265,15 @@ func (s *Service) initialize() error {
 **Generated:**
 
 ```go
-func NewService(db *sql.DB, logger Logger) *Service {
+func NewService(db *sql.DB, logger Logger) (*Service, error) {
     v := &Service{
         db:     db,
         logger: logger,
     }
-    v.initialize()
-    return v
+    if err := v.initialize(); err != nil {
+        return nil, err
+    }
+    return v, nil
 }
 ```
 
@@ -297,11 +307,16 @@ These three validation modes are mutually exclusive.
 **Generated:**
 
 ```go
-func NewConfig(debug bool, port int) Config {
-    return Config{
-        debug: debug,
-        port:  port,
+func NewServer(name string) (*Server, error) {
+    v := &Server{
+        name:    name,
+        port:    8080,
+        timeout: time.Second,
     }
+    if reflect.ValueOf(&v.name).Elem().IsZero() {
+        return nil, errors.New("required field name is zero")
+    }
+    return v, nil
 }
 ```
 
@@ -467,7 +482,7 @@ type User struct {
 }
 ```
 
-This generates all three patterns: `NewUser()`, `UserBuilder`, and `NewUserWithOptions()`.
+This generates all three patterns: `NewUser(name string, email string)`, `UserBuilder`, and `NewUserWithOptions()`.
 
 ## Usage Without Installation
 

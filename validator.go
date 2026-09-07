@@ -125,6 +125,10 @@ func removeValidationCandidates(dir, keepPath string) error {
 		if filename == keepPath {
 			continue
 		}
+		content, err := os.ReadFile(filename)
+		if err != nil || !bytes.Contains(content, []byte(generatedFileMarker)) {
+			continue
+		}
 		if err := os.Remove(filename); err != nil {
 			return fmt.Errorf("remove stale validation file %s: %w", filename, err)
 		}

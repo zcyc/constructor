@@ -125,6 +125,27 @@ func TestParseStructResolvesImportPackageName(t *testing.T) {
 	}
 }
 
+func TestGeneratedCodePreservesBuildConstraints(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_linux.go")
+	content := "//go:build linux\n\npackage test\n\ntype Config struct { value string }\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := ParseStruct(testFile, "Config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(code, "//go:build linux\n\npackage test\n") {
+		t.Fatalf("generated code dropped build constraint:\n%s", code)
+	}
+}
+
 func TestParseStructTracksDotImportsUsedByGeneratedCode(t *testing.T) {
 	tmpDir := t.TempDir()
 	externalDir := filepath.Join(tmpDir, "external")
@@ -204,6 +225,7 @@ func TestParseFieldSkipTag(t *testing.T) {
 	}{
 		{"no tag", "", false},
 		{"constructor skip", "`constructor:\"-\"`", true},
+		{"constructor skip with spaces", "`constructor:\" - \"`", true},
 		{"legacy newc tag ignored", "`newc:\"-\"`", false},
 		{"legacy gonstructor tag ignored", "`gonstructor:\"-\"`", false},
 		{"other tag", "`json:\"name\"`", false},

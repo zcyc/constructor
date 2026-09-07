@@ -226,6 +226,8 @@ constructor [flags]
 | `-validate-only`    | 只校验已有生成文件         | `false`         | `-validate-only`                            |
 | `-version`          | 显示版本信息            | -               | `-version`                                  |
 
+默认输出文件已存在时，只有其中包含同一类型的构造函数才会复用；否则会选择下一个可用名称，例如 `<type>2_gen.go`。
+
 ## 高级用法
 
 ### 初始化函数
@@ -248,6 +250,10 @@ func (s *Service) initialize() {
 
 ```go
 //go:generate constructor -type=Service -constructor-types=all-args -init=initialize -init-returns-error
+type Service struct {
+    db     *sql.DB
+    logger Logger
+}
 
 func (s *Service) initialize() error {
     return nil
@@ -257,13 +263,15 @@ func (s *Service) initialize() error {
 **生成：**
 
 ```go
-func NewService(db *sql.DB, logger Logger) *Service {
+func NewService(db *sql.DB, logger Logger) (*Service, error) {
     v := &Service{
         db:     db,
         logger: logger,
     }
-    v.initialize()
-    return v
+    if err := v.initialize(); err != nil {
+        return nil, err
+    }
+    return v, nil
 }
 ```
 
@@ -297,11 +305,16 @@ type Server struct {
 **生成：**
 
 ```go
-func NewConfig(debug bool, port int) Config {
-    return Config{
-        debug: debug,
-        port:  port,
+func NewServer(name string) (*Server, error) {
+    v := &Server{
+        name:    name,
+        port:    8080,
+        timeout: time.Second,
     }
+    if reflect.ValueOf(&v.name).Elem().IsZero() {
+        return nil, errors.New("required field name is zero")
+    }
+    return v, nil
 }
 ```
 
@@ -467,7 +480,7 @@ type User struct {
 }
 ```
 
-这将生成所有三种模式：`NewUser()`、`UserBuilder` 和 `NewUserWithOptions()`。
+这将生成所有三种模式：`NewUser(name string, email string)`、`UserBuilder` 和 `NewUserWithOptions()`。
 
 ## 无需安装即可使用
 

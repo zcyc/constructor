@@ -548,6 +548,22 @@ func TestGenerateAvoidsNameCollisions(t *testing.T) {
 	}
 }
 
+func TestGenerateBuilderAvoidsBuildMethodCollision(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Service",
+		PackageName: "test",
+		Fields:      []FieldInfo{{Name: "build", Type: "bool"}},
+	}
+
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"builder"}}, info).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(code, "func (b *ServiceBuilder) Build2(build bool)") {
+		t.Fatalf("builder setter collides with Build method:\n%s", code)
+	}
+}
+
 func TestGenerateIncludesOnlyUsedImports(t *testing.T) {
 	info := &StructInfo{
 		Name:        "TestStruct",
