@@ -163,7 +163,17 @@ func parseConstructorFieldOptions(tag string) (string, bool, error) {
 	var required bool
 	if index := strings.Index(value, "default="); index >= 0 {
 		for _, option := range strings.Split(strings.TrimSuffix(strings.TrimSpace(value[:index]), ","), ",") {
-			if strings.TrimSpace(option) == "required" {
+			option = strings.TrimSpace(option)
+			if option == "" {
+				continue
+			}
+			if option == "-" && strings.TrimSpace(value) != "-" {
+				return "", false, fmt.Errorf("skip option cannot be combined with other options")
+			}
+			if !isConstructorOption(option) {
+				return "", false, fmt.Errorf("unknown option %q", option)
+			}
+			if option == "required" {
 				required = true
 			}
 		}
@@ -173,7 +183,17 @@ func parseConstructorFieldOptions(tag string) (string, bool, error) {
 		}
 	} else {
 		for _, option := range strings.Split(value, ",") {
-			if strings.TrimSpace(option) == "required" {
+			option = strings.TrimSpace(option)
+			if option == "" {
+				continue
+			}
+			if option == "-" && strings.TrimSpace(value) != "-" {
+				return "", false, fmt.Errorf("skip option cannot be combined with other options")
+			}
+			if !isConstructorOption(option) {
+				return "", false, fmt.Errorf("unknown option %q", option)
+			}
+			if option == "required" {
 				required = true
 			}
 		}
@@ -182,6 +202,15 @@ func parseConstructorFieldOptions(tag string) (string, bool, error) {
 		return "", false, fmt.Errorf("required cannot be combined with default")
 	}
 	return defaultValue, required, nil
+}
+
+func isConstructorOption(option string) bool {
+	switch option {
+	case "-", "getter:false", "setter:false", "required":
+		return true
+	default:
+		return false
+	}
 }
 
 // exprToString converts an ast.Expr to its string representation

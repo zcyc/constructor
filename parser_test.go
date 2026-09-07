@@ -275,6 +275,30 @@ func TestParseConstructorFieldOptions(t *testing.T) {
 	}
 }
 
+func TestParseConstructorFieldOptionsRejectsUnknownOption(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := "package test\n\ntype Config struct { port int `constructor:\"notdefault=8080\"` }\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseStruct(testFile, "Config"); err == nil || !strings.Contains(err.Error(), "unknown option") {
+		t.Fatalf("expected unknown constructor option error, got %v", err)
+	}
+}
+
+func TestParseConstructorFieldOptionsRejectsCombinedSkip(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := "package test\n\ntype Config struct { port int `constructor:\"-,getter:false\"` }\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseStruct(testFile, "Config"); err == nil || !strings.Contains(err.Error(), "skip option cannot be combined") {
+		t.Fatalf("expected combined skip error, got %v", err)
+	}
+}
+
 func TestStructInfoGetFieldsForConstructor(t *testing.T) {
 	info := &StructInfo{
 		Name: "Test",
