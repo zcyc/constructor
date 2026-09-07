@@ -42,7 +42,7 @@ type User struct {
 	name      string
 	email     string
 	createdAt time.Time
-	metadata  map[string]string `newc:"-"` // 跳过此字段
+	metadata  map[string]string `constructor:"-"` // 跳过此字段
 }
 ```
 
@@ -292,6 +292,7 @@ type Server struct {
 带默认值的字段会从 all-args 参数列表中移除，并由三种模式自动初始化。必填字段会让生成的构造函数返回 `(*Server, error)`（配合 `-return-value` 时返回 `(Server, error)`）。
 
 `-dry-run` 用于只校验不写文件，`-stdout` 用于管道输出代码，`-validate-only` 用于校验已有生成文件。
+这三种校验模式不能同时使用。
 
 **生成：**
 
@@ -369,8 +370,6 @@ func (u *User) GetEmail() string {
 }
 // 没有 GetInternal() 方法
 ```
-
-**向后兼容性：** 也支持 `newc:"-"` 和 `gonstructor:"-"` 标签。
 
 #### 仅跳过 Getter
 
@@ -490,14 +489,12 @@ type User struct {
 - ✅ **额外模式**：支持函数式选项模式
 - ✅ **更清晰的选项**：更直观的标志名称
 - ✅ **更好的默认值**：常见用例的合理默认值
-- ✅ **兼容性**：支持 `gonstructor:"-"` 标签以便迁移
 
 ### vs newc
 
 - ✅ **更多模式**：建造者模式和函数式选项模式
 - ✅ **更多选项**：Setter 前缀、getter 生成等
 - ✅ **更好的文档**：全面的示例和使用指南
-- ✅ **兼容性**：支持 `newc:"-"` 标签以便迁移
 
 ## 示例
 

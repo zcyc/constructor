@@ -41,7 +41,7 @@ type User struct {
     name      string
     email     string
     createdAt time.Time
-    metadata  map[string]string `newc:"-"` // Skip this field
+    metadata  map[string]string `constructor:"-"` // Skip this field
 }
 ```
 
@@ -292,6 +292,7 @@ type Server struct {
 Default fields are omitted from the all-args parameter list and initialized by all patterns. Required fields make generated constructors return `(*Server, error)` (or `(Server, error)` with `-return-value`).
 
 Use `-dry-run` to validate without writing, `-stdout` to pipe generated code, and `-validate-only` to check an existing generated file.
+These three validation modes are mutually exclusive.
 
 **Generated:**
 
@@ -369,8 +370,6 @@ func (u *User) GetEmail() string {
 }
 // No GetInternal() method
 ```
-
-**Backward Compatibility:** Also supports `newc:"-"` and `gonstructor:"-"` tags.
 
 #### Skip Getter Only
 
@@ -490,14 +489,12 @@ This is especially useful in CI/CD pipelines and when working with teams where n
 - ✅ **Additional Pattern**: Functional options pattern support
 - ✅ **Cleaner Options**: More intuitive flag names
 - ✅ **Better Defaults**: Sensible defaults for common use cases
-- ✅ **Compatibility**: Supports `gonstructor:"-"` tags for migration
 
 ### vs newc
 
 - ✅ **More Patterns**: Builder and functional options patterns
 - ✅ **More Options**: Setter prefix, getter generation, etc.
 - ✅ **Better Documentation**: Comprehensive examples and usage guide
-- ✅ **Compatibility**: Supports `newc:"-"` tags for migration
 
 ## Examples
 

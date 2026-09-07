@@ -33,6 +33,14 @@ func (g *Generator) Generate() (string, error) {
 	if g.config.InitReturnsError && g.config.InitFunc == "" {
 		return "", fmt.Errorf("initReturnsError requires InitFunc")
 	}
+	if g.returnsError() {
+		if _, exists := g.typeParameterNames()["error"]; exists {
+			return "", fmt.Errorf("type parameter error cannot be used with constructors that return errors")
+		}
+	}
+	if err := g.validateImportNameConflicts(); err != nil {
+		return "", err
+	}
 
 	var buf bytes.Buffer
 
@@ -141,10 +149,63 @@ func (g *Generator) importsForGeneratedTypes() []ImportInfo {
 func (g *Generator) importForPath(importPath, defaultName string) ImportInfo {
 	for _, imp := range g.info.Imports {
 		if imp.Path == importPath && imp.Name != "_" {
+			return g.avoidImportNameConflict(imp, defaultName)
+		}
+	}
+	return g.avoidImportNameConflict(ImportInfo{Name: defaultName, Path: importPath}, defaultName)
+}
+
+func (g *Generator) avoidImportNameConflict(imp ImportInfo, defaultName string) ImportInfo {
+	if imp.Name == "." {
+		return imp
+	}
+	if !g.importNameTaken(importQualifier(imp), imp.Path) {
+		return imp
+	}
+	name := "constructor" + toUpperCamelCase(defaultName)
+	for suffix := 1; ; suffix++ {
+		candidate := name
+		if suffix > 1 {
+			candidate = fmt.Sprintf("constructor%s%d", toUpperCamelCase(defaultName), suffix)
+		}
+		if !g.importNameTaken(candidate, imp.Path) {
+			imp.Name = candidate
+			imp.Qualifier = ""
 			return imp
 		}
 	}
-	return ImportInfo{Name: defaultName, Path: importPath}
+}
+
+func (g *Generator) importNameTaken(name, importPath string) bool {
+	if _, exists := g.typeParameterNames()[name]; exists {
+		return true
+	}
+	for _, imp := range g.info.Imports {
+		if imp.Path != importPath && imp.Name != "." && imp.Name != "_" && importQualifier(imp) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) validateImportNameConflicts() error {
+	fields := append([]FieldInfo{}, g.info.GetFieldsForConstructor()...)
+	if g.config.WithGetter {
+		fields = append(fields, g.info.GetFieldsForGetter()...)
+	}
+	for _, imp := range g.info.Imports {
+		if imp.Name == "." || imp.Name == "_" {
+			continue
+		}
+		qualifier := importQualifier(imp)
+		if _, exists := g.typeParameterNames()[qualifier]; !exists {
+			continue
+		}
+		if importQualifierUsed(fields, g.info.TypeParams, qualifier) {
+			return fmt.Errorf("import qualifier %q conflicts with a type parameter", qualifier)
+		}
+	}
+	return nil
 }
 
 func (g *Generator) generatedSelector(importPath, defaultName, member string) string {
@@ -220,7 +281,7 @@ func (g *Generator) returnsError() bool {
 func (g *Generator) requiredError(fieldName string) string {
 	errorNew := g.generatedSelector("errors", "errors", "New")
 	if g.config.ReturnValue {
-		return fmt.Sprintf("return *new(%s), %s(%q)", g.typeReference(), errorNew, "required field "+fieldName+" is zero")
+		return fmt.Sprintf("return %s{}, %s(%q)", g.typeReference(), errorNew, "required field "+fieldName+" is zero")
 	}
 	return fmt.Sprintf("return nil, %s(%q)", errorNew, "required field "+fieldName+" is zero")
 }
@@ -290,18 +351,26 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 	return {{.ReturnValue}}{{end}}
 }`
 
-	params := []string{}
-	assignments := []string{}
 	paramFields := make([]FieldInfo, 0, len(fields))
 	for _, field := range fields {
 		if field.Default == "" {
 			paramFields = append(paramFields, field)
 		}
 	}
+	baseReturnType := "*" + g.typeReference()
+	returnType := baseReturnType
+	needsValue := g.config.InitFunc != "" || g.returnsError()
+	valueName := g.localName("v")
+	reservedNames := g.reservedNames()
+	if needsValue {
+		reservedNames[valueName] = struct{}{}
+	}
 	localNames := uniqueFieldNames(paramFields, func(field FieldInfo) string {
 		return toLowerCamelCase(field.Name)
-	})
+	}, reservedNames)
 
+	params := make([]string, 0, len(paramFields))
+	assignments := make([]string, 0, len(fields))
 	for _, field := range fields {
 		if field.Default != "" {
 			assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, field.Default))
@@ -312,21 +381,18 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 		assignments = append(assignments, fmt.Sprintf("%s: %s,", field.Name, paramName))
 	}
 
-	baseReturnType := "*" + g.typeReference()
-	returnType := baseReturnType
 	varDecl := "return &"
 	returnValue := ""
-	needsValue := g.config.InitFunc != "" || g.returnsError()
 	if needsValue {
 		if g.config.ReturnValue {
-			varDecl = "v := "
+			varDecl = valueName + " := "
 		} else {
-			varDecl = "v := &"
+			varDecl = valueName + " := &"
 		}
 		if g.returnsError() {
-			returnValue = "v, nil"
+			returnValue = valueName + ", nil"
 		} else {
-			returnValue = "v"
+			returnValue = valueName
 		}
 	}
 
@@ -348,17 +414,17 @@ func New{{.StructName}}{{.TypeParams}}({{.Params}}) {{.ReturnType}} {
 	// Handle validation and init function.
 	initCall := ""
 	if needsValue {
-		initCall = g.requiredValidation("v")
+		initCall = g.requiredValidation(valueName)
 	}
 	if g.config.InitFunc != "" {
 		if g.config.InitReturnsError {
 			if g.config.ReturnValue {
-				initCall += fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn *new(%s), err\n\t}", g.config.InitFunc, g.typeReference())
+				initCall += fmt.Sprintf("\n\tif err := %s.%s(); err != nil {\n\t\treturn %s{}, err\n\t}", valueName, g.config.InitFunc, g.typeReference())
 			} else {
-				initCall += fmt.Sprintf("\n\tif err := v.%s(); err != nil {\n\t\treturn nil, err\n\t}", g.config.InitFunc)
+				initCall += fmt.Sprintf("\n\tif err := %s.%s(); err != nil {\n\t\treturn nil, err\n\t}", valueName, g.config.InitFunc)
 			}
 		} else {
-			initCall += fmt.Sprintf("\n\tv.%s()", g.config.InitFunc)
+			initCall += fmt.Sprintf("\n\t%s.%s()", valueName, g.config.InitFunc)
 		}
 	}
 
@@ -399,9 +465,10 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	}
 
 	// Generate builder struct
+	receiverName := g.localName("b")
 	localNames := uniqueFieldNames(fields, func(field FieldInfo) string {
 		return toLowerCamelCase(field.Name)
-	})
+	}, g.reservedNames(receiverName))
 	methodNames := uniqueFieldNames(fields, func(field FieldInfo) string {
 		return prefix + toUpperCamelCase(field.Name)
 	})
@@ -417,8 +484,10 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	buf.WriteString(fmt.Sprintf("// New%s creates a new %s\n", builderName, builderName))
 	buf.WriteString(fmt.Sprintf("func New%s%s() *%s {\n", builderName, g.info.TypeParams, builderType))
 	buf.WriteString(fmt.Sprintf("\treturn &%s{\n", builderType))
-	for _, assignment := range defaultAssignments(fields) {
-		buf.WriteString("\t\t" + assignment + "\n")
+	for _, field := range fields {
+		if field.Default != "" {
+			buf.WriteString(fmt.Sprintf("\t\t%s: %s,\n", localNames[field.Name], field.Default))
+		}
 	}
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n\n")
@@ -430,10 +499,10 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 		fieldName := localNames[field.Name]
 
 		buf.WriteString(fmt.Sprintf("// %s sets the %s field\n", methodName, field.Name))
-		buf.WriteString(fmt.Sprintf("func (b *%s) %s(%s %s) *%s {\n",
-			builderType, methodName, paramName, field.Type, builderType))
-		buf.WriteString(fmt.Sprintf("\tb.%s = %s\n", fieldName, paramName))
-		buf.WriteString("\treturn b\n")
+		buf.WriteString(fmt.Sprintf("func (%s *%s) %s(%s %s) *%s {\n",
+			receiverName, builderType, methodName, paramName, field.Type, builderType))
+		buf.WriteString(fmt.Sprintf("\t%s.%s = %s\n", receiverName, fieldName, paramName))
+		buf.WriteString(fmt.Sprintf("\treturn %s\n", receiverName))
 		buf.WriteString("}\n\n")
 	}
 
@@ -447,19 +516,20 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	}
 
 	buf.WriteString(fmt.Sprintf("// Build builds the %s\n", g.info.Name))
-	buf.WriteString(fmt.Sprintf("func (b *%s) Build() %s {\n", builderType, returnType))
+	valueName := g.localName("v")
+	buf.WriteString(fmt.Sprintf("func (%s *%s) Build() %s {\n", receiverName, builderType, returnType))
 
 	if g.config.ReturnValue {
-		buf.WriteString(fmt.Sprintf("\tv := %s{\n", g.typeReference()))
+		buf.WriteString(fmt.Sprintf("\t%s := %s{\n", valueName, g.typeReference()))
 	} else {
-		buf.WriteString(fmt.Sprintf("\tv := &%s{\n", g.typeReference()))
+		buf.WriteString(fmt.Sprintf("\t%s := &%s{\n", valueName, g.typeReference()))
 	}
 
 	for _, field := range fields {
-		buf.WriteString(fmt.Sprintf("\t\t%s: b.%s,\n", field.Name, localNames[field.Name]))
+		buf.WriteString(fmt.Sprintf("\t\t%s: %s.%s,\n", field.Name, receiverName, localNames[field.Name]))
 	}
 	buf.WriteString("\t}\n")
-	if validation := g.requiredValidation("v"); validation != "" {
+	if validation := g.requiredValidation(valueName); validation != "" {
 		buf.WriteString(validation)
 		buf.WriteByte('\n')
 	}
@@ -467,22 +537,22 @@ func (g *Generator) generateBuilderConstructor(fields []FieldInfo) (string, erro
 	// Handle init function
 	if g.config.InitFunc != "" {
 		if g.config.InitReturnsError {
-			buf.WriteString(fmt.Sprintf("\tif err := v.%s(); err != nil {\n", g.config.InitFunc))
+			buf.WriteString(fmt.Sprintf("\tif err := %s.%s(); err != nil {\n", valueName, g.config.InitFunc))
 			if g.config.ReturnValue {
-				buf.WriteString(fmt.Sprintf("\t\treturn *new(%s), err\n", g.typeReference()))
+				buf.WriteString(fmt.Sprintf("\t\treturn %s{}, err\n", g.typeReference()))
 			} else {
 				buf.WriteString("\t\treturn nil, err\n")
 			}
 			buf.WriteString("\t}\n")
 		} else {
-			buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+			buf.WriteString(fmt.Sprintf("\t%s.%s()\n", valueName, g.config.InitFunc))
 		}
 	}
 
 	if g.returnsError() {
-		buf.WriteString("\treturn v, nil\n")
+		buf.WriteString(fmt.Sprintf("\treturn %s, nil\n", valueName))
 	} else {
-		buf.WriteString("\treturn v\n")
+		buf.WriteString(fmt.Sprintf("\treturn %s\n", valueName))
 	}
 	buf.WriteString("}\n")
 
@@ -508,9 +578,10 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	buf.WriteString(fmt.Sprintf("type %s%s func(*%s)\n\n", optionType, g.info.TypeParams, g.typeReference()))
 
 	// Generate option functions
+	receiverName := g.localName("s")
 	localNames := uniqueFieldNames(fields, func(field FieldInfo) string {
 		return toLowerCamelCase(field.Name)
-	})
+	}, g.reservedNames(receiverName))
 	optionNames := uniqueFieldNames(fields, func(field FieldInfo) string {
 		return "With" + toUpperCamelCase(field.Name)
 	})
@@ -521,27 +592,30 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 
 		buf.WriteString(fmt.Sprintf("// %s sets the %s field\n", optionName, field.Name))
 		buf.WriteString(fmt.Sprintf("func %s%s(%s %s) %s {\n", optionName, g.info.TypeParams, paramName, field.Type, optionTypeReference))
-		buf.WriteString(fmt.Sprintf("\treturn func(s *%s) {\n", g.typeReference()))
-		buf.WriteString(fmt.Sprintf("\t\ts.%s = %s\n", field.Name, paramName))
+		buf.WriteString(fmt.Sprintf("\treturn func(%s *%s) {\n", receiverName, g.typeReference()))
+		buf.WriteString(fmt.Sprintf("\t\t%s.%s = %s\n", receiverName, field.Name, paramName))
 		buf.WriteString("\t}\n")
 		buf.WriteString("}\n\n")
 	}
 
 	// Generate constructor with options
 	buf.WriteString(fmt.Sprintf("// New%sWithOptions creates a new %s with functional options\n", g.info.Name, g.info.Name))
-	buf.WriteString(fmt.Sprintf("func New%sWithOptions%s(opts ...%s) %s {\n", g.info.Name, g.info.TypeParams, optionTypeReference, returnType))
+	optionListName := g.localName("opts")
+	buf.WriteString(fmt.Sprintf("func New%sWithOptions%s(%s ...%s) %s {\n", g.info.Name, g.info.TypeParams, optionListName, optionTypeReference, returnType))
 
-	buf.WriteString(fmt.Sprintf("\tv := &%s{\n", g.typeReference()))
+	valueName := g.localName("v")
+	buf.WriteString(fmt.Sprintf("\t%s := &%s{\n", valueName, g.typeReference()))
 	for _, assignment := range defaultAssignments(fields) {
 		buf.WriteString("\t\t" + assignment + "\n")
 	}
 	buf.WriteString("\t}\n")
 
-	buf.WriteString("\tfor _, opt := range opts {\n")
-	buf.WriteString("\t\topt(v)\n")
+	optionValueName := g.localName("opt")
+	buf.WriteString(fmt.Sprintf("\tfor _, %s := range %s {\n", optionValueName, optionListName))
+	buf.WriteString(fmt.Sprintf("\t\t%s(%s)\n", optionValueName, valueName))
 	buf.WriteString("\t}\n")
 
-	if validation := g.requiredValidation("v"); validation != "" {
+	if validation := g.requiredValidation(valueName); validation != "" {
 		buf.WriteString(validation)
 		buf.WriteByte('\n')
 	}
@@ -549,29 +623,29 @@ func (g *Generator) generateOptionsConstructor(fields []FieldInfo) (string, erro
 	// Handle init function
 	if g.config.InitFunc != "" {
 		if g.config.InitReturnsError {
-			buf.WriteString(fmt.Sprintf("\tif err := v.%s(); err != nil {\n", g.config.InitFunc))
+			buf.WriteString(fmt.Sprintf("\tif err := %s.%s(); err != nil {\n", valueName, g.config.InitFunc))
 			if g.config.ReturnValue {
-				buf.WriteString(fmt.Sprintf("\t\treturn *new(%s), err\n", g.typeReference()))
+				buf.WriteString(fmt.Sprintf("\t\treturn %s{}, err\n", g.typeReference()))
 			} else {
 				buf.WriteString("\t\treturn nil, err\n")
 			}
 			buf.WriteString("\t}\n")
 		} else {
-			buf.WriteString(fmt.Sprintf("\tv.%s()\n", g.config.InitFunc))
+			buf.WriteString(fmt.Sprintf("\t%s.%s()\n", valueName, g.config.InitFunc))
 		}
 	}
 
 	if g.config.ReturnValue {
 		if g.returnsError() {
-			buf.WriteString("\treturn *v, nil\n")
+			buf.WriteString(fmt.Sprintf("\treturn *%s, nil\n", valueName))
 		} else {
-			buf.WriteString("\treturn *v\n")
+			buf.WriteString(fmt.Sprintf("\treturn *%s\n", valueName))
 		}
 	} else {
 		if g.returnsError() {
-			buf.WriteString("\treturn v, nil\n")
+			buf.WriteString(fmt.Sprintf("\treturn %s, nil\n", valueName))
 		} else {
-			buf.WriteString("\treturn v\n")
+			buf.WriteString(fmt.Sprintf("\treturn %s\n", valueName))
 		}
 	}
 	buf.WriteString("}\n")
@@ -585,7 +659,7 @@ func (g *Generator) generateGetters(fields []FieldInfo) string {
 	getterNames := uniqueFieldNames(fields, func(field FieldInfo) string {
 		return "Get" + toUpperCamelCase(field.Name)
 	})
-	receiverName := firstRune(g.info.Name, unicode.ToLower)
+	receiverName := g.localName(firstRune(g.info.Name, unicode.ToLower))
 
 	for _, field := range fields {
 		if !field.Exported {
@@ -604,6 +678,52 @@ func (g *Generator) generateGetters(fields []FieldInfo) string {
 
 func (g *Generator) typeReference() string {
 	return g.info.Name + g.info.TypeArgs
+}
+
+func (g *Generator) typeParameterNames() map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, name := range strings.Split(strings.Trim(g.info.TypeArgs, "[]"), ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func (g *Generator) localName(preferred string) string {
+	name := preferred
+	if token.IsKeyword(name) {
+		name += "Value"
+	}
+	reserved := g.reservedNames()
+	for suffix := 1; ; suffix++ {
+		candidate := name
+		if suffix > 1 {
+			candidate = fmt.Sprintf("%s%d", name, suffix)
+		}
+		if _, exists := reserved[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
+func (g *Generator) reservedNames(extra ...string) map[string]struct{} {
+	reserved := g.typeParameterNames()
+	for _, imp := range g.importsForGeneratedTypes() {
+		if imp.Name == "." || imp.Name == "_" {
+			continue
+		}
+		if qualifier := importQualifier(imp); qualifier != "" {
+			reserved[qualifier] = struct{}{}
+		}
+	}
+	for _, name := range extra {
+		if name != "" {
+			reserved[name] = struct{}{}
+		}
+	}
+	return reserved
 }
 
 // toLowerCamelCase converts a string to lowerCamelCase
@@ -636,12 +756,20 @@ func firstRune(s string, change func(rune) rune) string {
 	return string(change(r))
 }
 
-func uniqueFieldNames(fields []FieldInfo, base func(FieldInfo) string) map[string]string {
+func uniqueFieldNames(fields []FieldInfo, base func(FieldInfo) string, reserved ...map[string]struct{}) map[string]string {
 	names := make(map[string]string, len(fields))
 	used := make(map[string]struct{}, len(fields))
+	if len(reserved) > 0 {
+		for name := range reserved[0] {
+			used[name] = struct{}{}
+		}
+	}
 
 	for _, field := range fields {
 		name := base(field)
+		if token.IsKeyword(name) {
+			name += "Value"
+		}
 		for suffix := 1; ; suffix++ {
 			candidate := name
 			if suffix > 1 {

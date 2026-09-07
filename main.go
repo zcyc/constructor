@@ -51,6 +51,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: -validate-only cannot be combined with -dry-run or -stdout\n")
 		os.Exit(1)
 	}
+	if *dryRun && *stdoutOutput {
+		fmt.Fprintf(os.Stderr, "Error: -dry-run cannot be combined with -stdout\n")
+		os.Exit(1)
+	}
 
 	// Find the source file containing the struct
 	sourceFile, err := findSourceFile(*typeName, *inputFile)

@@ -175,25 +175,24 @@ func TestParseStructTracksDotImportsUsedByGeneratedCode(t *testing.T) {
 	}
 }
 
-func TestShouldSkipField(t *testing.T) {
+func TestParseFieldSkipTag(t *testing.T) {
 	tests := []struct {
 		name     string
 		tag      string
 		expected bool
 	}{
 		{"no tag", "", false},
-		{"newc skip", "`newc:\"-\"`", true},
-		{"gonstructor skip", "`gonstructor:\"-\"`", true},
 		{"constructor skip", "`constructor:\"-\"`", true},
+		{"legacy newc tag ignored", "`newc:\"-\"`", false},
+		{"legacy gonstructor tag ignored", "`gonstructor:\"-\"`", false},
 		{"other tag", "`json:\"name\"`", false},
-		{"newc with value", "`newc:\"value\"`", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := shouldSkipField(tt.tag)
-			if result != tt.expected {
-				t.Errorf("shouldSkipField(%q) = %v, want %v", tt.tag, result, tt.expected)
+			skip, _, _ := parseFieldSkipTags(tt.tag)
+			if skip != tt.expected {
+				t.Errorf("parseFieldSkipTags(%q) skip = %v, want %v", tt.tag, skip, tt.expected)
 			}
 		})
 	}
@@ -209,10 +208,9 @@ func TestParseFieldSkipTags(t *testing.T) {
 	}{
 		{"no tag", "", false, false, false},
 		{"constructor skip", "`constructor:\"-\"`", true, false, false},
-		{"newc skip", "`newc:\"-\"`", true, false, false},
-		{"gonstructor skip", "`gonstructor:\"-\"`", true, false, false},
 		{"skip getter", "`constructor:\"getter:false\"`", false, true, false},
 		{"skip setter", "`constructor:\"setter:false\"`", false, false, true},
+		{"skip getter and setter", "`constructor:\"getter:false, setter:false\"`", false, true, true},
 		{"other tag", "`json:\"name\"`", false, false, false},
 		{"mixed tags", "`json:\"name\" constructor:\"getter:false\"`", false, true, false},
 	}

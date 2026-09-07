@@ -470,7 +470,7 @@ func embeddedFieldName(expr ast.Expr) string {
 
 // parseFieldSkipTags parses field tags to determine skip behavior
 // Returns: (skip, skipGetter, skipSetter)
-// - skip: completely skip this field (constructor:"-" or newc:"-" or gonstructor:"-")
+// - skip: completely skip this field (constructor:"-")
 // - skipGetter: skip getter generation only (constructor:"getter:false")
 // - skipSetter: skip setter/constructor parameter only (constructor:"setter:false")
 func parseFieldSkipTags(tag string) (bool, bool, bool) {
@@ -485,49 +485,21 @@ func parseFieldSkipTags(tag string) (bool, bool, bool) {
 	skipGetter := false
 	skipSetter := false
 
-	// Split by spaces to get individual tags
-	parts := strings.Fields(tag)
-	for _, part := range parts {
-		// Check for constructor tag with options
-		if strings.HasPrefix(part, "constructor:") {
-			tagValue := strings.TrimPrefix(part, "constructor:")
-			tagValue = strings.Trim(tagValue, `"`)
-
-			if tagValue == "-" {
-				skip = true
-			} else if strings.Contains(tagValue, "getter:false") {
+	tagValue := reflect.StructTag(tag).Get("constructor")
+	if tagValue == "-" {
+		skip = true
+	} else {
+		for _, option := range strings.Split(tagValue, ",") {
+			switch strings.TrimSpace(option) {
+			case "getter:false":
 				skipGetter = true
-			} else if strings.Contains(tagValue, "setter:false") {
+			case "setter:false":
 				skipSetter = true
-			}
-		}
-
-		// Check for newc:"-" tag (backward compatibility)
-		if strings.HasPrefix(part, "newc:") {
-			tagValue := strings.TrimPrefix(part, "newc:")
-			tagValue = strings.Trim(tagValue, `"`)
-			if tagValue == "-" {
-				skip = true
-			}
-		}
-
-		// Also support gonstructor:"-" tag for compatibility
-		if strings.HasPrefix(part, "gonstructor:") {
-			tagValue := strings.TrimPrefix(part, "gonstructor:")
-			tagValue = strings.Trim(tagValue, `"`)
-			if tagValue == "-" {
-				skip = true
 			}
 		}
 	}
 
 	return skip, skipGetter, skipSetter
-}
-
-// shouldSkipField checks if a field should be skipped based on its tag (backward compatibility)
-func shouldSkipField(tag string) bool {
-	skip, _, _ := parseFieldSkipTags(tag)
-	return skip
 }
 
 // GetFieldsForConstructor returns fields that should be included in constructor

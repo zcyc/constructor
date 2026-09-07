@@ -51,6 +51,176 @@ func TestGenerateAllArgsConstructor(t *testing.T) {
 	}
 }
 
+func TestGeneratedNamesAvoidGoKeywords(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		Fields: []FieldInfo{
+			{Name: "Map", Type: "map[string]string"},
+			{Name: "Type", Type: "string"},
+		},
+	}
+
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs", "builder", "options"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if strings.Contains(code, "func NewConfig(map map[string]string") || strings.Contains(code, " type string") {
+		t.Fatalf("generated code uses a Go keyword as an identifier:\n%s", code)
+	}
+	if !strings.Contains(code, "mapValue map[string]string") || !strings.Contains(code, "typeValue string") {
+		t.Fatalf("generated code did not rename keyword-based identifiers:\n%s", code)
+	}
+}
+
+func TestGeneratedGenericLocalNamesTypeCheck(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Box",
+		PackageName: "test",
+		TypeParams:  "[v, b, s, opt, opts any]",
+		TypeArgs:    "[v, b, s, opt, opts]",
+		Fields:      []FieldInfo{{Name: "value", Type: "v"}},
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs", "builder", "options"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "box.go", []byte("package test\n\ntype Box[v, b, s, opt, opts any] struct { value v }\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "box_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated generic code does not type-check: %v\n%s", err, code)
+	}
+}
+
+func TestGeneratorRejectsErrorTypeParameterWithErrorResult(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		TypeParams:  "[error any]",
+		TypeArgs:    "[error]",
+		Fields:      []FieldInfo{{Name: "name", Type: "string", Required: true}},
+	}
+	if _, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate(); err == nil || !strings.Contains(err.Error(), "type parameter error") {
+		t.Fatalf("expected error type parameter conflict, got %v", err)
+	}
+}
+
+func TestGeneratedImportsAvoidTypeParameterNames(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		TypeParams:  "[errors, reflect any]",
+		TypeArgs:    "[errors, reflect]",
+		Fields:      []FieldInfo{{Name: "name", Type: "string", Required: true}},
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, "constructorErrors.New") || !strings.Contains(code, "constructorReflect.ValueOf") {
+		t.Fatalf("generated imports were not renamed around type parameters:\n%s", code)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "config.go", []byte("package test\n\ntype Config[errors, reflect any] struct { name string }\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "config_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated imports conflict with type parameters: %v\n%s", err, code)
+	}
+}
+
+func TestGeneratedImportsAvoidExistingAliases(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		Imports:     []ImportInfo{{Name: "errors", Path: "time", Qualifier: "time"}},
+		Fields: []FieldInfo{
+			{Name: "duration", Type: "errors.Duration"},
+			{Name: "name", Type: "string", Required: true},
+		},
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !strings.Contains(code, `errors "time"`) || !strings.Contains(code, `constructorErrors "errors"`) {
+		t.Fatalf("generated imports contain an alias collision:\n%s", code)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "config.go", []byte("package test\n\nimport errors \"time\"\n\ntype Config struct { duration errors.Duration; name string }\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "config_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated imports conflict with existing aliases: %v\n%s", err, code)
+	}
+}
+
+func TestGeneratorRejectsDefaultImportTypeParameterCollision(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		TypeParams:  "[time any]",
+		TypeArgs:    "[time]",
+		Imports:     []ImportInfo{{Path: "time", Qualifier: "time"}},
+		Fields:      []FieldInfo{{Name: "created", Type: "int", Default: "time.Now()"}},
+	}
+	if _, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate(); err == nil || !strings.Contains(err.Error(), "import qualifier \"time\"") {
+		t.Fatalf("expected default import/type parameter collision, got %v", err)
+	}
+}
+
+func TestGeneratedLocalNamesAvoidFieldsAndImports(t *testing.T) {
+	info := &StructInfo{
+		Name:        "Config",
+		PackageName: "test",
+		Imports:     []ImportInfo{{Path: "time", Qualifier: "time"}},
+		Fields: []FieldInfo{
+			{Name: "V", Type: "int", Required: true},
+			{Name: "B", Type: "int"},
+			{Name: "S", Type: "int"},
+			{Name: "Time", Type: "time.Time"},
+			{Name: "Created", Type: "time.Time", Default: "time.Now()"},
+		},
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs", "builder", "options"}}, info).Generate()
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	source, err := goparser.ParseFile(fset, "config.go", []byte("package test\n\nimport \"time\"\n\ntype Config struct { V int; B int; S int; Time time.Time; Created time.Time }\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := goparser.ParseFile(fset, "config_gen.go", []byte(code), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: importer.Default()}).Check("test", fset, []*ast.File{source, generated}, nil); err != nil {
+		t.Fatalf("generated code has a local-name collision: %v\n%s", err, code)
+	}
+}
+
 func TestGenerateBuilderConstructor(t *testing.T) {
 	info := &StructInfo{
 		Name:        "TestStruct",
