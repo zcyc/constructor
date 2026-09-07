@@ -175,6 +175,27 @@ func TestParseStructTracksDotImportsUsedByGeneratedCode(t *testing.T) {
 	}
 }
 
+func TestParseStructIgnoresDotImportNamesThatAreNotReferences(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.go")
+	content := "package test\n\nimport . \"fmt\"\n\nvar _ = Println\n\ntype Box struct { Println int }\n"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := ParseStruct(testFile, "Box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := NewGenerator(&GeneratorConfig{ConstructorTypes: []string{"allArgs"}}, info).Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(code, `"fmt"`) {
+		t.Fatalf("generated code retained an unused dot import:\n%s", code)
+	}
+}
+
 func TestParseFieldSkipTag(t *testing.T) {
 	tests := []struct {
 		name     string

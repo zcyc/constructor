@@ -437,11 +437,19 @@ func dotImportReferencesPackage(info *types.Info, target *ast.StructType, typePa
 		return used
 	}
 
-	if usesPackage(target) {
-		return true
+	if target != nil {
+		for _, field := range target.Fields.List {
+			if usesPackage(field.Type) {
+				return true
+			}
+		}
 	}
-	if typeParams != nil && usesPackage(typeParams) {
-		return true
+	if typeParams != nil {
+		for _, field := range typeParams.List {
+			if usesPackage(field.Type) {
+				return true
+			}
+		}
 	}
 	for _, expression := range defaults {
 		if usesPackage(expression) {

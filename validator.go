@@ -13,15 +13,30 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
+// ponytail: one process-wide lock keeps temporary package candidates isolated;
+// use per-directory locks only if concurrent validation becomes a bottleneck.
+var validationMu sync.Mutex
+
 // validateGeneratedPackage compiles the generated package and its tests without
 // running them, catching unresolved imports, type errors, and stale test APIs.
-func validateGeneratedPackage(sourceFile, outputFile, generated string) error {
+func validateGeneratedPackage(sourceFile, outputFile, generated string) (returnErr error) {
+	validationMu.Lock()
+	defer validationMu.Unlock()
+
 	dir, err := filepath.Abs(filepath.Dir(sourceFile))
 	if err != nil {
 		return fmt.Errorf("resolve package directory: %w", err)
+	}
+	outputPath, err := filepath.Abs(outputFile)
+	if err != nil {
+		return fmt.Errorf("resolve output file: %w", err)
+	}
+	if err := removeValidationCandidates(dir, outputPath); err != nil {
+		return err
 	}
 
 	candidate, err := os.CreateTemp(dir, "constructor-validate-*.go")
@@ -38,18 +53,33 @@ func validateGeneratedPackage(sourceFile, outputFile, generated string) error {
 		return fmt.Errorf("close validation file: %w", err)
 	}
 
-	outputPath, err := filepath.Abs(outputFile)
-	if err != nil {
-		return fmt.Errorf("resolve output file: %w", err)
-	}
-	sourceFiles, err := packageSourceFiles(dir, outputPath)
-	if err != nil {
-		return err
-	}
-	sourceFiles = append(sourceFiles, candidatePath)
-	testFiles, err := packageTestFiles(dir)
-	if err != nil {
-		return err
+	if filepath.Dir(outputPath) == dir {
+		if _, err := os.Lstat(outputPath); err == nil {
+			// go test does not honor build overlays, so temporarily move the
+			// existing candidate out and restore it after compilation.
+			backup, err := os.CreateTemp(dir, "."+filepath.Base(outputPath)+".backup-*")
+			if err != nil {
+				return fmt.Errorf("create output backup: %w", err)
+			}
+			backupPath := backup.Name()
+			if err := backup.Close(); err != nil {
+				_ = os.Remove(backupPath)
+				return fmt.Errorf("close output backup: %w", err)
+			}
+			if err := os.Remove(backupPath); err != nil {
+				return fmt.Errorf("prepare output backup: %w", err)
+			}
+			if err := os.Rename(outputPath, backupPath); err != nil {
+				return fmt.Errorf("temporarily move output file: %w", err)
+			}
+			defer func() {
+				if err := os.Rename(backupPath, outputPath); err != nil && returnErr == nil {
+					returnErr = fmt.Errorf("restore output file: %w", err)
+				}
+			}()
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect output file: %w", err)
+		}
 	}
 
 	testBinary, err := os.CreateTemp("", "constructor-test-*")
@@ -63,9 +93,7 @@ func validateGeneratedPackage(sourceFile, outputFile, generated string) error {
 	}
 	defer os.Remove(testBinaryPath)
 
-	args := []string{"test", "-c", "-o", testBinaryPath}
-	args = append(args, sourceFiles...)
-	args = append(args, testFiles...)
+	args := []string{"test", "-c", "-o", testBinaryPath, "."}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, "go", args...)
@@ -80,6 +108,26 @@ func validateGeneratedPackage(sourceFile, outputFile, generated string) error {
 			return fmt.Errorf("module type check failed: %s", message)
 		}
 		return fmt.Errorf("module type check failed: %w", err)
+	}
+	return nil
+}
+
+func removeValidationCandidates(dir, keepPath string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read validation directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || !strings.HasPrefix(entry.Name(), "constructor-validate-") {
+			continue
+		}
+		filename := filepath.Join(dir, entry.Name())
+		if filename == keepPath {
+			continue
+		}
+		if err := os.Remove(filename); err != nil {
+			return fmt.Errorf("remove stale validation file %s: %w", filename, err)
+		}
 	}
 	return nil
 }
@@ -132,8 +180,7 @@ func packageSourceFiles(dir, outputFile string) ([]string, error) {
 		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		// Validation candidates are passed explicitly to go test and must not
-		// be mistaken for package sources during a concurrent validation.
+		// Validation candidates are tool-owned temporary files, not declarations.
 		if strings.HasPrefix(name, "constructor-validate-") {
 			continue
 		}
@@ -147,33 +194,6 @@ func packageSourceFiles(dir, outputFile string) ([]string, error) {
 			continue
 		}
 
-		matched, err := build.Default.MatchFile(dir, name)
-		if err != nil {
-			return nil, fmt.Errorf("match build constraints for %s: %w", filename, err)
-		}
-		if matched {
-			files = append(files, filename)
-		}
-	}
-
-	sort.Strings(files)
-	return files, nil
-}
-
-func packageTestFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("read package directory: %w", err)
-	}
-
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || filepath.Ext(name) != ".go" || !strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-
-		filename := filepath.Join(dir, name)
 		matched, err := build.Default.MatchFile(dir, name)
 		if err != nil {
 			return nil, fmt.Errorf("match build constraints for %s: %w", filename, err)
